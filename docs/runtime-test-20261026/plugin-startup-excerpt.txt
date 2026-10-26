@@ -1,0 +1,7 @@
+[32m[22:55:30.341][0m [Core] [1m[INFO][0m [star.star_manager:1215]: [1mPlugin astrbot_plugin_livingmemory (2.7.3) by lxfight: 为 AstrBot 打造的、拥有完整记忆生命周期的智能长期记忆插件（v2.0 重构版）。[0m
+[32m[22:55:35.405][0m [Core] [1m[INFO][0m [star.star_manager:1215]: [1mPlugin astrbot_plugin_proactive_chat (v1.2.6) by DBJD-CR: 一个能让 Bot 在私聊和群聊中发起主动消息的插件，拥有上下文感知、持久化数据、动态情绪、免打扰时段和 TTS 集成。还有独立 WebUI，可进行个性化配置。[0m
+[32m[22:55:37.283][0m [astrbot_plugin_proactive_chat] [1m[INFO][0m [services.scheduler_service:393]: [1m[主动消息] 已为 1 个会话设置自动主动消息触发器喵。（跳过：已有任务 0，无效 0，未启用 0，已达未回复上限 0）[0m
+[32m[22:55:37.283][0m [astrbot_plugin_proactive_chat] [1m[INFO][0m [services.lifecycle_service:175]: [1m[主动消息] 自动主动消息触发器初始化完成喵。[0m
+[32m[22:55:38.356][0m [astrbot_plugin_livingmemory] [1m[INFO][0m [core.plugin_initializer_finalize:363]: [1mLivingMemory 插件初始化成功。[0m
+[32m[22:55:38.367][0m [Core] [1m[INFO][0m [star.context:755]: [1mplugin(module_path data.plugins.astrbot_plugin_livingmemory.main) added LLM tool: recall_long_term_memory[0m
+[32m[22:55:38.367][0m [Core] [1m[INFO][0m [star.context:755]: [1mplugin(module_path data.plugins.astrbot_plugin_livingmemory.main) added LLM tool: memorize_long_term_memory[0m

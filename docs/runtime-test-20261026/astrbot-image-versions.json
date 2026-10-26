@@ -1,0 +1,1 @@
+{"astrbot": "4.29.3", "dependencies": {"aiofiles": "25.1.0", "APScheduler": "3.11.3", "fastapi": "0.162.0", "uvicorn": "0.54.0", "faiss-cpu": "1.15.1"}}

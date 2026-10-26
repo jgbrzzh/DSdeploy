@@ -1,0 +1,107 @@
+{
+  "panels": {
+    "http://127.0.0.1:6185/": {
+      "http": 200,
+      "html_bytes": 3884
+    },
+    "http://127.0.0.1:6099/webui": {
+      "http": 200,
+      "html_bytes": 1365
+    }
+  },
+  "login": true,
+  "login_endpoint": "/api/auth/login",
+  "memory_import": {
+    "status": "ok",
+    "data": {
+      "dry_run": false,
+      "total": 1,
+      "imported_count": 0,
+      "skipped_duplicate_count": 1,
+      "failed_count": 0,
+      "imported_ids": [],
+      "errors": []
+    }
+  },
+  "/api/plug/astrbot_plugin_livingmemory/page/stats": {
+    "status": "ok",
+    "data": {
+      "total_memories": 1,
+      "sessions": {
+        "qq:FriendMessage:12345678": 1
+      },
+      "status_breakdown": {
+        "active": 1,
+        "archived": 0,
+        "deleted": 0
+      },
+      "avg_importance": 0.8,
+      "importance_distribution": {
+        "0-1": 0,
+        "1-2": 0,
+        "2-3": 0,
+        "3-4": 0,
+        "4-5": 0,
+        "5-6": 0,
+        "6-7": 0,
+        "7-8": 0,
+        "8-9": 1,
+        "9-10": 0
+      },
+      "oldest_memory": 1793026844.9219737,
+      "newest_memory": 1793026844.9219737,
+      "graph_nodes": 1,
+      "graph_edges": 0,
+      "graph_entries": 1,
+      "graph_memory_enabled": true,
+      "index_maintenance": {
+        "state": "ready",
+        "reason": "索引状态正常",
+        "current": 1,
+        "total": 1,
+        "message": "索引一致性检查通过",
+        "started_at": 1793026929.5815413,
+        "finished_at": 1793026929.6317906,
+        "result": null
+      },
+      "atom_count": 0,
+      "atom_breakdown": {},
+      "recent_sessions": [
+        {
+          "session_id": "qq:FriendMessage:12345678",
+          "message_count": 1
+        }
+      ]
+    }
+  },
+  "/api/plug/astrbot_plugin_livingmemory/page/recall/test": {
+    "status": "ok",
+    "data": {
+      "results": [
+        {
+          "memory_id": 1,
+          "content": "测试记忆：主人喜欢茉莉花茶，验收编号 DSDEPLOY-20261026。",
+          "similarity_score": 1.0,
+          "score_percentage": 100.0,
+          "metadata": {
+            "session_id": "qq:FriendMessage:12345678",
+            "persona_id": "dafeiyu",
+            "importance": 0.8,
+            "memory_type": "GENERAL",
+            "status": "active",
+            "create_time": 1793026844.9219737,
+            "recent_memory": 1.0
+          },
+          "score_breakdown": {
+            "recent_memory": 1.0
+          }
+        }
+      ],
+      "total": 1,
+      "query": "主人喜欢喝什么茶？DSDEPLOY-20261026",
+      "k": 1,
+      "session_id_filter": "qq:FriendMessage:12345678",
+      "elapsed_time_ms": 10020.95
+    }
+  }
+}

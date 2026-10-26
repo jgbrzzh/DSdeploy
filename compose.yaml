@@ -1,0 +1,50 @@
+name: dsdeploy
+services:
+  astrbot:
+    image: dsdeploy-astrbot:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        ASTRBOT_BASE: soulter/astrbot:latest
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - ollama
+    ports:
+      - "127.0.0.1:6185:6185"
+    volumes:
+      - ./data/astrbot:/AstrBot/data
+      - ./bootstrap:/bootstrap:ro
+      - ./private:/deploy-private:ro
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: "0.0.0.0:11434"
+      OLLAMA_KEEP_ALIVE: "5m"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    restart: unless-stopped
+    depends_on:
+      - astrbot
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6099:6099"
+    volumes:
+      - ./data/napcat:/app/napcat/config
+      - ./data/qq:/app/.config/QQ
+      - ./data/astrbot:/AstrBot/data
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}

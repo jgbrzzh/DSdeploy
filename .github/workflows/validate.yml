@@ -1,0 +1,45 @@
+name: Validate source and deployment package
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-checks:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Audit tracked source
+        run: python tools/audit_public.py --tracked
+      - name: Exercise Windows PowerShell launcher with simulated Docker
+        run: python tests/verify_launcher.py
+      - name: Install source integration test dependencies
+        run: python -m pip install -r tests/requirements.txt
+      - name: Prepare pinned upstream AstrBot source
+        shell: pwsh
+        run: |
+          git init .research/AstrBot
+          if ($LASTEXITCODE) { throw 'git init failed' }
+          git -C .research/AstrBot remote add origin https://github.com/AstrBotDevs/AstrBot
+          git -C .research/AstrBot fetch --depth 1 origin 832fc6d98ac25facd54b07424c16067435c118e6
+          if ($LASTEXITCODE) { throw 'upstream fetch failed' }
+          git -C .research/AstrBot checkout --detach FETCH_HEAD
+          if ($LASTEXITCODE) { throw 'upstream checkout failed' }
+      - name: Check upstream config, ORM and plugin configuration
+        run: |
+          python bootstrap/install_plugins.py vendor .research/extracted-plugins
+          python tests/verify_source.py
+      - name: Build and audit clean deployment ZIP
+        run: |
+          python tools/package.py
+          python tools/audit_public.py --archive dist/QQ大肥鱼一键部署包.zip

@@ -1,0 +1,7 @@
+{
+  "zip_test": "passed",
+  "bytes": 3794112,
+  "files": 663,
+  "preserves_data_prefix": true,
+  "excludes_docker_disk_and_model": true
+}

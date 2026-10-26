@@ -1,0 +1,19 @@
+{
+    "services":  {
+                     "astrbot":  {
+                                     "build":  {
+                                                   "args":  {
+                                                                "ASTRBOT_BASE":  "docker.m.daocloud.io/soulter/astrbot@sha256:c93a6d19507ba45474c3dfb82aad9d36eb432a478112f13c7e6325b5ebffc5f2"
+                                                            }
+                                               }
+                                 },
+                     "ollama":  {
+                                    "image":  "docker.m.daocloud.io/ollama/ollama@sha256:dea72d1e22270fe095b68fdf756d2b489d615643c5a2eaebbc5f569181e322d8",
+                                    "pull_policy":  "never"
+                                },
+                     "napcat":  {
+                                    "image":  "docker.m.daocloud.io/mlikiowa/napcat-docker@sha256:b101b8968cc31ae428ec0f8e117386e4ced7773b2d8226ed9f7ddfcec55f1b7e",
+                                    "pull_policy":  "never"
+                                }
+                 }
+}

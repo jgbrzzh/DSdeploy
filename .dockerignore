@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!bootstrap/
+!bootstrap/install_plugins.py
+!vendor/
+!vendor/**
