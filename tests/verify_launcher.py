@@ -57,7 +57,17 @@ if 'run' in args:
     if (root/'fail-bootstrap').exists(): sys.exit(42)
     target=root/'data/astrbot/cmd_config.json'
     if not target.exists(): target.write_text('preserve-user-config')
-if 'ps' in args and '--services' in args: print('astrbot\nollama')
+if 'ps' in args and '--services' in args:
+    active=root/'active-services'
+    print(active.read_text() if active.exists() else '')
+for operation in ('up','start','stop'):
+    if operation not in args: continue
+    active=root/'active-services'
+    previous=set(active.read_text().splitlines()) if active.exists() else set()
+    targets=set(args[args.index(operation)+1:]) & {'astrbot','napcat','ollama'}
+    if operation=='stop': current=previous-targets if targets else set()
+    else: current=previous | (targets or {'astrbot','ollama'})
+    active.write_text('\n'.join(sorted(current)))
 sys.exit(0)
 '''
 
@@ -106,7 +116,26 @@ def main():
                 server = socketserver.TCPServer(("127.0.0.1", port), QuietHandler)
                 servers.append(server)
                 threading.Thread(target=server.serve_forever, daemon=True).start()
-            run("Start")
+            # Images are prepared without requiring any QQ/API settings.
+            settings_path.unlink()
+            run('PrepareImages')
+            assert not settings_path.exists()
+            assert not (root / 'data/astrbot/cmd_config.json').exists()
+            assert not (root / 'data/napcat/webui.json').exists()
+            assert not (root / 'active-services').read_text()
+            calls = [json.loads(line) for line in (root / 'commands.jsonl').read_text().splitlines()]
+            assert not any('/bootstrap/bootstrap.py' in args for args in calls)
+            assert any('pull' in args and 'bge-m3' in args for args in calls)
+            assert not any('up' in args and args[-1] != 'ollama' for args in calls)
+            settings_path.write_text(json.dumps(settings), encoding='utf-8')
+            run('Start', success=False)  # No implicit configuration import.
+            (root / 'fail-bootstrap').touch()
+            run('InitializeConfig', success=False)
+            (root / 'fail-bootstrap').unlink()
+            run('InitializeConfig')
+            assert not (root / 'active-services').read_text()
+            count_before_start = len((root / 'commands.jsonl').read_text().splitlines())
+            run('Start')
             config = root / "data/astrbot/cmd_config.json"
             saved = config.read_bytes()
             napcat = root / "data/napcat/onebot11_87654321.json"
@@ -123,6 +152,30 @@ def main():
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             assert sum('build' in args for args in calls) == 1
             assert sum(args[0] == 'pull' for args in calls) == 3
+            start_calls = calls[count_before_start:]
+            assert not any('build' in args or args[0] == 'pull' or 'run' in args for args in start_calls)
+            assert all('never' in args for args in start_calls if 'up' in args)
+            run('PrepareImages')
+            assert config.read_bytes() == saved and napcat.read_bytes() == napcat_saved
+            assert settings_path.read_text(encoding='utf-8') == json.dumps(settings)
+            repeated = [json.loads(line) for line in (root / 'commands.jsonl').read_text().splitlines()]
+            assert sum(args[0] == 'pull' for args in repeated) == 3
+            assert sum('build' in args for args in repeated) == 1
+            run('UpdateImages')
+            updated = [json.loads(line) for line in (root / 'commands.jsonl').read_text().splitlines()]
+            assert sum(args[0] == 'pull' for args in updated) == 6
+            assert config.read_bytes() == saved and napcat.read_bytes() == napcat_saved
+            assert list((root / 'backups').glob('镜像锁-*.json'))
+            # A changed dependency must stop startup before any build/import/up.
+            with (root / 'Dockerfile').open('a', encoding='utf-8') as changed:
+                changed.write('\n# changed dependency fixture\n')
+            before = len((root / 'commands.jsonl').read_text().splitlines())
+            run('Start', success=False)
+            rejected = [json.loads(line) for line in (root / 'commands.jsonl').read_text().splitlines()][before:]
+            assert not any('build' in args or 'up' in args or 'run' in args or args[0]=='pull' for args in rejected)
+            run('PrepareImages')
+            assert config.read_bytes() == saved
+            run('Start')
             run("Backup")
             assert len(list((root / "backups").glob("*.zip"))) == 1
             with zipfile.ZipFile(next((root / "backups").glob("*.zip"))) as backup:
@@ -135,9 +188,8 @@ def main():
             assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 1
             assert config.read_bytes() == saved
             (root / "fail-bootstrap").touch()
-            run("Start", success=False)
-            calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
-            assert 'run' in calls[-1]  # Failed initialization never reaches up.
+            run('Start')  # Startup no longer invokes bootstrap at all.
+            assert config.read_bytes() == saved
             run("Stop")
             assert config.read_bytes() == saved
             assert settings_path.read_text(encoding="utf-8") == json.dumps(settings)
@@ -145,7 +197,7 @@ def main():
             for server in servers:
                 server.shutdown()
                 server.server_close()
-    print("PASS: real PowerShell launcher + Chinese/spaced paths + disk guard + image lock + restart preservation + backup + failed bootstrap")
+    print("PASS: real PowerShell launcher + Chinese/spaced paths + disk guard + independent image/config/start stages + refresh + preservation + backup + failed import")
 
 
 if __name__ == "__main__":

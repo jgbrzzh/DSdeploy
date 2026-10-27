@@ -4,7 +4,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = ['一键启动.cmd', '一键停止.cmd', '查看状态.cmd', '查看日志.cmd',
             '备份数据.cmd', '环境检查.cmd', '安装Docker.cmd', '下载镜像包.cmd',
-            '升级陪伴配置.cmd', '导入我的表情库.cmd']
+            '升级陪伴配置.cmd', '导入我的表情库.cmd',
+            '下载准备镜像.cmd', '更新镜像.cmd', '导入初始配置.cmd']
 PACKAGE_ROOTS = ['Deploy.ps1', 'Dockerfile', 'compose.yaml', '.dockerignore',
                  'README.md', 'LICENSE', 'NOTICE.md', 'VERSION', *COMMANDS]
 SOURCE_ROOTS = [*PACKAGE_ROOTS, '.gitignore', '.gitattributes']

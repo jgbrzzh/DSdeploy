@@ -2,6 +2,8 @@
 
 将 AstrBot、NapCat、DeepSeek API、长期记忆与主动陪伴接到 QQ。面向 Windows 用户，提供首次配置和之后的一键启动入口。
 
+v1.2 将镜像准备、配置导入和服务启动拆开，便于独立升级。[分步部署与升级](docs/分步部署与升级.md)。
+
 v1.1 已迁入群友式人格、短句分段、最近聊天流水、表情包与签到互动。[活人感方案与升级说明](docs/活人感方案.md)。
 
 **[下载最新版部署包](https://github.com/jgbrzzh/DSdeploy/releases/latest) · [完整操作流程](docs/操作流程.md) · [验证范围](docs/验证记录.md) · [隐私说明](docs/隐私与发布范围.md)**
@@ -14,8 +16,8 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 
 1. 将整个部署包解压到固定目录，例如 `D:\QQ大肥鱼`。不要直接在压缩包内运行。
 2. 没装 Docker Desktop 时，双击 `安装Docker.cmd`。安装器下载到包内，程序安装到 `runtime/DockerDesktop`，WSL 数据盘定向到 `data/docker-desktop`。根据安装器完成 WSL2/虚拟化设置；需要重启时先重启。打开 Docker Desktop，等待引擎运行。
-3. 双击 `一键启动.cmd`，输入你的 QQ、机器人小号 QQ、API 地址、模型名、API Key。Key 输入时隐藏，只保存在本机文件中。
-4. 脚本下载三个上游镜像，固定摘要，构建含四个插件依赖的 AstrBot 运行环境，并下载 bge-m3（约 1.2 GB）。自动设置模型、主人权限、OneBot、人格、长期记忆和主动陪伴，并打开两个面板。
+3. 双击 `下载准备镜像.cmd`：下载或导入三个基础镜像、锁定版本、构建四插件依赖并准备 bge-m3。此步不需要 QQ 或 API Key，不导入机器人配置。
+4. 双击 `导入初始配置.cmd`：输入 QQ、模型与 Key，创建初始配置。已有配置保留；之后双击 `一键启动.cmd` 打开服务和面板。
 5. `private/面板登录信息.txt` 包含 AstrBot 账号/初始密码和 NapCat Token。在 NapCat 面板输入 Token，**扫码登录你刚填的机器人小号**。
 6. 用主人 QQ 加机器人为好友并私聊：“你好，大肥鱼”。以 QQ 实际收到回复为验收。只有网页打开、容器运行不算全部成功。
 
@@ -28,7 +30,10 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 
 | 文件 | 用途 |
 |---|---|
-| 一键启动.cmd | 首次部署、之后启动并打开面板 |
+| 下载准备镜像.cmd | 准备镜像、插件依赖与向量模型；复用现有镜像锁 |
+| 更新镜像.cmd | 主动下载上游新版并更新镜像锁；不导入配置 |
+| 导入初始配置.cmd | 使用已准备镜像生成初始配置；不下载镜像 |
+| 一键启动.cmd | 只启动已有配置的服务并打开面板；不下载、不导入 |
 | 一键停止.cmd | 停止本包服务，保留数据 |
 | 查看状态.cmd | 容器状态 |
 | 查看日志.cmd | 查看两侧最近日志并持续跟随；Ctrl+C 退出 |
@@ -48,13 +53,13 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 - `private/docker-client`：本包 Docker 客户端配置；`data/docker-desktop`：Docker WSL 数据盘，镜像、构建缓存及容器日志保存在其中。
 - `data`、`private`、`backups`：业务数据、凭据及备份。
 
-若机器已有其他位置的 Docker，启动器不会自动迁移或重装它；必须先在 Docker Desktop 中把 Disk image location 设为包内 `data/docker-desktop`。未发现包内数据盘时，启动器在拉取镜像前停止。
+若机器已有其他位置的 Docker，启动器不会自动迁移或重装它；必须先在 Docker Desktop 中把 Disk image location 设为包内 `data/docker-desktop`。未发现包内数据盘时，镜像准备和启动入口会停止。
 Docker Desktop/WSL 是 Windows 安装的软件，仍会有注册表、用户设置与系统日志等系统记录；本包不能将这些操作系统记录变成便携文件。此约定约束本包管理的项目文件和大型数据。
 首次安装后请固定这个文件夹的位置；Docker 安装位置和数据盘不能只靠移动目录改名迁移。
 
 镜像下载不畅时，可在另一台网络畅通且已运行 Docker 的电脑执行「下载镜像包.cmd」，将生成的 offline 文件夹带回本包。官方链接与手动导出步骤见 `offline/下载说明.md`。插件依赖和本地向量模型仍有首次联网下载步骤。
 
-镜像下载默认使用 DaoCloud 国内入口 `docker.m.daocloud.io`，仅改变本包拉取地址，不修改整台电脑的 Docker 镜像源设置。需要切换时可运行 `powershell -File .\Deploy.ps1 -ImageSource 1ms` 或 `-ImageSource Official`。首次锁定版本后，继续沿用已记录的镜像地址。
+镜像下载默认使用 DaoCloud 国内入口 `docker.m.daocloud.io`，仅改变本包拉取地址，不修改整台电脑的 Docker 镜像源设置。需要切换时可运行 `powershell -File .\Deploy.ps1 -Action PrepareImages -ImageSource 1ms` 或 `-ImageSource Official`。首次锁定版本后，准备入口继续复用原版本。明确升级上游镜像时运行 `更新镜像.cmd`；切换源升级时用 `-Action UpdateImages -ImageSource Official`。
 如果网络使用 Fake-IP DNS，本包会在首次下载 bge-m3 前检查 Ollama 官方仓库和它返回的 Cloudflare 模型 CDN 域名；仅在解析到非公网地址时，通过 AliDNS HTTPS 查询获得公网 IPv4，并在 `compose.dns.json` 中为本包 Ollama 容器设置 hosts 映射。不改系统 DNS，不关闭 Ollama 的地址校验。
 
 ## 管理与扩展

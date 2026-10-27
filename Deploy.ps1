@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes')]
+    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig')]
     [string]$Action = 'Start',
     [switch]$NoBrowser,
     [ValidateSet('DaoCloud','1ms','Official')]
@@ -236,9 +236,117 @@ function Wait-Ollama {
     }
     return $false
 }
+function Get-BuildSignature {
+    $buildFiles = @('Dockerfile','bootstrap/install_plugins.py','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip','compose.lock.json')
+    $signature = ($buildFiles | ForEach-Object { Get-Sha256 (Join-Path $Root $_) }) -join ':'
+    return $signature
+}
+function Require-PreparedImages {
+    Require-LocalDisk
+    $state = Join-Path $Root 'private/build-state.json'
+    if (-not (Test-Path -LiteralPath (Join-Path $Root 'compose.lock.json')) -or -not (Test-Path -LiteralPath $state)) {
+        throw '请先运行“下载准备镜像.cmd”，此操作不会导入机器人配置。'
+    }
+    $saved = Get-Content -LiteralPath $state -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($saved.signature -ne (Get-BuildSignature)) { throw '程序或插件依赖已更新，请先运行“下载准备镜像.cmd”重新准备运行环境。' }
+    foreach ($image in @('dsdeploy-astrbot:local')) {
+        $probe = Get-DockerProbe @('image','inspect',$image,'--format','{{.Id}}')
+        if ($probe.ExitCode -ne 0) { throw '运行镜像缺失，请运行“下载准备镜像.cmd”。' }
+    }
+}
+function Prepare-Images([bool]$Refresh = $false) {
+    Require-LocalDisk
+    Invoke-Compose @('config','--quiet')
+    if ($Refresh -or -not (Test-Path -LiteralPath (Join-Path $Root 'compose.lock.json'))) {
+        $localArchive = Join-Path $Root 'offline/images.tar'
+        $importedImages = $false
+        if (-not $Refresh -and (Test-Path -LiteralPath $localArchive)) {
+            $checksumPath = $localArchive + '.sha256'
+            if (Test-Path -LiteralPath $checksumPath) {
+                $expectedHash = ((Get-Content -LiteralPath $checksumPath -Raw -Encoding UTF8).Trim() -split '\s+')[0]
+                if ((Get-Sha256 $localArchive) -ne $expectedHash) { throw '本地镜像包 SHA-256 不匹配。' }
+            }
+            Write-Host '导入包内 offline/images.tar…'
+            Invoke-Docker -DockerArgs @('load','--input',$localArchive)
+            $importedImages = $true
+        }
+        Write-Host '首次下载 AstrBot、NapCat 和 Ollama，耗时取决于网络…'
+        foreach ($image in @('soulter/astrbot:latest','mlikiowa/napcat-docker:latest','ollama/ollama:latest')) {
+            if ($importedImages) {
+                $imageProbe = Get-DockerProbe @('image','inspect',$image,'--format','{{.Id}}')
+                if ($imageProbe.ExitCode -eq 0) { continue }
+            }
+            Pull-DeploymentImage $image
+        }
+        $oldLock = Join-Path $Root 'compose.lock.json'
+        if (Test-Path -LiteralPath $oldLock) {
+            $lockBackups = Join-Path $Root 'backups'
+            New-Item -ItemType Directory -Force -Path $lockBackups | Out-Null
+            Copy-Item -LiteralPath $oldLock -Destination (Join-Path $lockBackups ('镜像锁-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.json'))
+        }
+        Lock-Images
+    }
+    $signature = Get-BuildSignature
+    $buildState = Join-Path $Root 'private/build-state.json'
+    $imageExists = & docker image ls -q dsdeploy-astrbot:local
+    if ($LASTEXITCODE -ne 0) { throw '检查本地运行镜像失败。' }
+    $needsBuild = $true
+    if ((Test-Path -LiteralPath $buildState) -and $imageExists) {
+        $oldState = Get-Content -LiteralPath $buildState -Raw -Encoding UTF8 | ConvertFrom-Json
+        $needsBuild = $oldState.signature -ne $signature
+    }
+    if ($needsBuild) {
+        Write-Host '正在准备长期记忆和主动陪伴插件依赖…'
+        Invoke-Compose @('build','astrbot')
+        Write-Utf8 $buildState (@{signature=$signature} | ConvertTo-Json)
+    }
+    $probe = Get-DockerProbe ((Get-ComposeArgs) + @('ps','--status','running','--services'))
+    if ($probe.ExitCode -ne 0) { throw '无法读取本包运行状态。' }
+    $ollamaWasRunning = @($probe.Output) -contains 'ollama'
+    try {
+        Invoke-Compose @('up','-d','ollama')
+        # Check the service before pulling; exec may race the server startup.
+        if (-not (Wait-Ollama)) { throw '本地记忆向量服务未就绪，请检查日志。' }
+        $modelProbe = Get-DockerProbe ((Get-ComposeArgs) + @('exec','-T','ollama','ollama','show','bge-m3'))
+        if ($modelProbe.ExitCode -ne 0) {
+            $dnsOutput = @(Invoke-Compose @('run','--rm','--no-deps','--entrypoint','python','astrbot','/bootstrap/prepare_ollama_dns.py'))
+            $dnsJson = ($dnsOutput -join [Environment]::NewLine).Trim()
+            if ($dnsJson -and $dnsJson -ne '{}') {
+                $dnsObject = ConvertFrom-Json -InputObject $dnsJson
+                if ($dnsObject.PSObject.Properties.Name -contains 'services') {
+                    Write-Utf8 (Join-Path $Root 'compose.dns.json') $dnsJson
+                    Write-Host '检测到模型 CDN 的 Fake-IP 解析，已为本包 Ollama 容器设置真实公网解析。'
+                    Invoke-Compose @('up','-d','ollama')
+                    if (-not (Wait-Ollama)) { throw '更新解析后记忆向量服务尚未就绪。' }
+                }
+            }
+            Write-Host '首次下载本地记忆模型 bge-m3（约 1.2 GB）…'
+            Invoke-DockerDownload -DockerArgs ((Get-ComposeArgs) + @('exec','-T','ollama','ollama','pull','bge-m3'))
+        }
+    } finally {
+        if (-not $ollamaWasRunning) { Invoke-Compose @('stop','ollama') }
+    }
+    Write-Host '镜像、插件依赖和 bge-m3 已准备好。没有导入或升级机器人配置。'
+}
+function Initialize-Configuration {
+    Require-PreparedImages
+    Initialize-Settings
+    $settings = Get-Content -LiteralPath (Join-Path $Root 'private/settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($dir in @('data/astrbot','data/napcat','data/qq')) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $Root $dir) | Out-Null
+    }
+    Initialize-NapCat $settings
+    if (Test-Path -LiteralPath (Join-Path $Root 'data/astrbot/cmd_config.json')) {
+        Invoke-CompanionMaintenance 'bootstrap.py'
+    } else {
+        Invoke-Compose @('run','--rm','--no-deps','--pull','never','--entrypoint','python','astrbot','/bootstrap/bootstrap.py')
+    }
+    Write-Host '初始配置导入完成；已有配置会保留。需要迁移表达设置时，请单独运行“升级陪伴配置.cmd”。'
+}
 function Invoke-CompanionMaintenance([string]$Entry) {
+    Require-PreparedImages
     if (-not (Test-Path -LiteralPath (Join-Path $Root 'data/astrbot/cmd_config.json'))) {
-        throw '请先完成首次启动。'
+        throw '请先运行“导入初始配置.cmd”。'
     }
     $probe = Get-DockerProbe ((Get-ComposeArgs) + @('ps','--status','running','--services'))
     if ($probe.ExitCode -ne 0) { throw '无法读取本包运行状态。' }
@@ -250,9 +358,9 @@ function Invoke-CompanionMaintenance([string]$Entry) {
     try {
         Write-DataBackup $destination
         Write-Host "已先备份到：$destination"
-        Invoke-Compose @('run','--rm','--no-deps','--entrypoint','python','astrbot',('/bootstrap/'+$Entry))
+        Invoke-Compose @('run','--rm','--no-deps','--pull','never','--entrypoint','python','astrbot',('/bootstrap/'+$Entry))
     } finally {
-        if ($running.Count -gt 0) { Invoke-Compose (@('start') + $running) }
+        if ($running.Count -gt 0) { Invoke-Compose (@('up','-d','--no-build','--pull','never','--no-deps') + $running) }
     }
 }
 try {
@@ -316,74 +424,19 @@ try {
         exit 0
     }
     switch ($Action) {
+        'PrepareImages' { Prepare-Images }
+        'UpdateImages' { Prepare-Images $true }
+        'InitializeConfig' { Initialize-Configuration }
         'Start' {
-            Require-LocalDisk
-            Initialize-Settings
-            $settings = Get-Content -LiteralPath (Join-Path $Root 'private/settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($dir in @('data/astrbot','data/napcat','data/qq','data/ollama')) {
-                New-Item -ItemType Directory -Force -Path (Join-Path $Root $dir) | Out-Null
+            Require-PreparedImages
+            foreach ($file in @('private/settings.json','data/astrbot/cmd_config.json','data/napcat/webui.json')) {
+                if (-not (Test-Path -LiteralPath (Join-Path $Root $file))) { throw '请先运行“导入初始配置.cmd”。' }
             }
-            Initialize-NapCat $settings
-            Invoke-Compose @('config','--quiet')
-            if (-not (Test-Path -LiteralPath (Join-Path $Root 'compose.lock.json'))) {
-                $localArchive = Join-Path $Root 'offline/images.tar'
-                $importedImages = $false
-                if (Test-Path -LiteralPath $localArchive) {
-                    $checksumPath = $localArchive + '.sha256'
-                    if (Test-Path -LiteralPath $checksumPath) {
-                        $expectedHash = ((Get-Content -LiteralPath $checksumPath -Raw -Encoding UTF8).Trim() -split '\s+')[0]
-                        if ((Get-Sha256 $localArchive) -ne $expectedHash) { throw '本地镜像包 SHA-256 不匹配。' }
-                    }
-                    Write-Host '导入包内 offline/images.tar…'
-                    Invoke-Docker -DockerArgs @('load','--input',$localArchive)
-                    $importedImages = $true
-                }
-                Write-Host '首次下载 AstrBot、NapCat 和 Ollama，耗时取决于网络…'
-                foreach ($image in @('soulter/astrbot:latest','mlikiowa/napcat-docker:latest','ollama/ollama:latest')) {
-                    if ($importedImages) {
-                        $imageProbe = Get-DockerProbe @('image','inspect',$image,'--format','{{.Id}}')
-                        if ($imageProbe.ExitCode -eq 0) { continue }
-                    }
-                    Pull-DeploymentImage $image
-                }
-                Lock-Images
-            }
-            $buildFiles = @('Dockerfile','bootstrap/install_plugins.py','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip','compose.lock.json')
-            $signature = ($buildFiles | ForEach-Object { Get-Sha256 (Join-Path $Root $_) }) -join ':'
-            $buildState = Join-Path $Root 'private/build-state.json'
-            $imageExists = & docker image ls -q dsdeploy-astrbot:local
-            if ($LASTEXITCODE -ne 0) { throw '检查本地运行镜像失败。' }
-            $needsBuild = $true
-            if ((Test-Path -LiteralPath $buildState) -and $imageExists) {
-                $oldState = Get-Content -LiteralPath $buildState -Raw -Encoding UTF8 | ConvertFrom-Json
-                $needsBuild = $oldState.signature -ne $signature
-            }
-            if ($needsBuild) {
-                Write-Host '正在准备长期记忆和主动陪伴插件依赖…'
-                Invoke-Compose @('build','astrbot')
-                Write-Utf8 $buildState (@{signature=$signature} | ConvertTo-Json)
-            }
-            Invoke-Compose @('up','-d','ollama')
-            # Check the service before pulling; exec may race the server startup.
-            if (-not (Wait-Ollama)) { throw '本地记忆向量服务未就绪，请检查日志。' }
+            Invoke-Compose @('up','-d','--no-build','--pull','never','ollama')
+            if (-not (Wait-Ollama)) { throw '本地记忆向量服务未就绪，请查看日志。' }
             $modelProbe = Get-DockerProbe ((Get-ComposeArgs) + @('exec','-T','ollama','ollama','show','bge-m3'))
-            if ($modelProbe.ExitCode -ne 0) {
-                $dnsOutput = @(Invoke-Compose @('run','--rm','--no-deps','--entrypoint','python','astrbot','/bootstrap/prepare_ollama_dns.py'))
-                $dnsJson = ($dnsOutput -join [Environment]::NewLine).Trim()
-                if ($dnsJson -and $dnsJson -ne '{}') {
-                    $dnsObject = ConvertFrom-Json -InputObject $dnsJson
-                    if ($dnsObject.PSObject.Properties.Name -contains 'services') {
-                        Write-Utf8 (Join-Path $Root 'compose.dns.json') $dnsJson
-                        Write-Host '检测到模型 CDN 的 Fake-IP 解析，已为本包 Ollama 容器设置真实公网解析。'
-                        Invoke-Compose @('up','-d','ollama')
-                        if (-not (Wait-Ollama)) { throw '更新解析后记忆向量服务尚未就绪。' }
-                    }
-                }
-                Write-Host '首次下载本地记忆模型 bge-m3（约 1.2 GB）…'
-                Invoke-DockerDownload -DockerArgs ((Get-ComposeArgs) + @('exec','-T','ollama','ollama','pull','bge-m3'))
-            }
-            Invoke-Compose @('run','--rm','--no-deps','--entrypoint','python','astrbot','/bootstrap/bootstrap.py')
-            Invoke-Compose @('up','-d','--no-build')
+            if ($modelProbe.ExitCode -ne 0) { throw 'bge-m3 尚未准备好，请运行“下载准备镜像.cmd”。' }
+            Invoke-Compose @('up','-d','--no-build','--pull','never')
             $astrReady = Wait-Panel 6185
             $napReady = Wait-Panel 6099
             if (-not $astrReady -or -not $napReady) { throw '部分面板尚未就绪，请用“查看日志.cmd”检查；服务及数据已保留。' }
