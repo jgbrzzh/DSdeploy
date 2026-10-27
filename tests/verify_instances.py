@@ -29,20 +29,20 @@ with tempfile.TemporaryDirectory(prefix='instances-', dir=ROOT / '.research') as
     config = old / 'data/astrbot/cmd_config.json'
     config.write_text('old-version-must-stay')
     run(old, 'Stop', success=False)  # New launcher must not operate a legacy project.
-    assert config.read_text() == 'old-version-must-stay'
+    assert config.read_text(encoding='utf-8') == 'old-version-must-stay'
     assert not (old / 'private/instance.json').exists()
     run(first, 'ConfigureInstance')
     run(second, 'ConfigureInstance')
-    a = json.loads((first / 'private/instance.json').read_text())
-    b = json.loads((second / 'private/instance.json').read_text())
+    a = json.loads((first / 'private/instance.json').read_text(encoding='utf-8'))
+    b = json.loads((second / 'private/instance.json').read_text(encoding='utf-8'))
     assert a['project'] != b['project'] and a['image'] != b['image']
     assert {a['astrbot_port'], a['napcat_port']}.isdisjoint({6185, 6099})
     assert {b['astrbot_port'], b['napcat_port']}.isdisjoint({6185, 6099})
     assert a['docker_mode'] == b['docker_mode'] == 'shared'
     run(first, 'ConfigureInstance')
-    assert json.loads((first / 'private/instance.json').read_text()) == a
+    assert json.loads((first / 'private/instance.json').read_text(encoding='utf-8')) == a
     (copied / 'private').mkdir()
     shutil.copy2(first / 'private/instance.json', copied / 'private/instance.json')
     run(copied, 'Stop', success=False)  # A copied identity cannot stop the original.
-    assert config.read_text() == 'old-version-must-stay'
+    assert config.read_text(encoding='utf-8') == 'old-version-must-stay'
 print('PASS: independent directory identities/images/ports + legacy guard + copied identity guard')

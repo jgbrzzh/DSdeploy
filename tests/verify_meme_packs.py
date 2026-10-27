@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(prefix='bundled-memes-', dir=ROOT / '.research'
     data = Path(temporary)
     assert all(p['status'] == 'installed' for p in install(source, data))
     base = data / 'plugin_data/meme_manager'
-    registry = json.loads((base / 'registry.json').read_text())
+    registry = json.loads((base / 'registry.json').read_text(encoding='utf-8'))
     assert len(registry['installed_packs']) == 2
     # Exercise the pinned plugin's real multi-pack resolver with fixture paths.
     plugin = ROOT / '.research/extracted-plugins/meme_manager'
@@ -54,16 +54,16 @@ with tempfile.TemporaryDirectory(prefix='bundled-memes-', dir=ROOT / '.research'
     assert 'happy' in context['category_mapping']
     assert all(path.exists() for path in context['pack_dirs'].values())
     rules = base / 'selection_rules.json'
-    assert json.loads(rules.read_text())['rules'][0]['pack_ids'] == [p['id'] for p in manifest['packs']]
+    assert json.loads(rules.read_text(encoding='utf-8'))['rules'][0]['pack_ids'] == [p['id'] for p in manifest['packs']]
     # Local edits and a user's selection must survive subsequent installs.
     edited = base / 'packs/deepseek-girl-pack/keep-my-note.txt'
     edited.write_text('local customization')
     custom = {'schema_version': 1, 'rules': [{'id': 'default', 'scope': 'default', 'pack_id': 'wuwa-phoebe-pack'}]}
     rules.write_text(json.dumps(custom))
     assert all(p['status'] == 'preserved' for p in install(source, data))
-    assert edited.read_text() == 'local customization'
-    assert json.loads(rules.read_text()) == custom
-    assert len(json.loads((base / 'registry.json').read_text())['installed_packs']) == 2
+    assert edited.read_text(encoding='utf-8') == 'local customization'
+    assert json.loads(rules.read_text(encoding='utf-8')) == custom
+    assert len(json.loads((base / 'registry.json').read_text(encoding='utf-8'))['installed_packs']) == 2
     # A corrupt public archive must fail before creating a pack.
     invalid = data / 'invalid-source'
     invalid.mkdir()
