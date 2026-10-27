@@ -131,6 +131,9 @@ def main():
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             restarts = [args for args in calls if 'start' in args]
             assert restarts[-1][-3:] == ['start', 'astrbot', 'ollama']
+            run('UpgradeCompanion')
+            assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 1
+            assert config.read_bytes() == saved
             (root / "fail-bootstrap").touch()
             run("Start", success=False)
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]

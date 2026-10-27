@@ -10,6 +10,8 @@ import json
 import sys
 import tempfile
 import types
+import zipfile
+import io
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +56,15 @@ async def main():
         assert proactive["friend_settings"]["schedule_settings"]["quiet_hours"] == "23-8"
         assert not proactive["group_settings"]["enable"]
         assert not proactive["web_admin"]["enabled"]
+        assert proactive['friend_settings']['context_settings']['source_mode'] == 'hybrid'
+        assert proactive['friend_settings']['segmented_reply_settings']['enable']
+        assert proactive['friend_settings']['schedule_settings']['max_unanswered_times'] == 3
+        meme = json.loads((data / 'config/meme_manager_config.json').read_text(encoding='utf-8'))
+        assert meme['generation']['trigger']['scope'] == 'chat_and_plugin_llm'
+        assert meme['generation']['emotion']['llm']['provider_id'] == 'deepseek/deepseek-flash'
+        assert not meme['auto_collect']['enabled']
+        signin = json.loads((data / 'config/astrbot_plugin_signin_config.json').read_text(encoding='utf-8'))
+        assert signin['admin_umo_list'] == settings['owner_qq']
         saved_plugin_config = proactive_file.read_bytes()
         bootstrap.install_plugins(data, {**settings, "owner_qq": "99999999"}, ROOT / ".research/extracted-plugins")
         assert proactive_file.read_bytes() == saved_plugin_config
@@ -61,6 +72,13 @@ async def main():
         config = json.loads((data / "cmd_config.json").read_text(encoding="utf-8"))
         assert config["agent_runner"]["config"]["model"]["provider_id"] == "deepseek/deepseek-flash"
         assert config["platform_settings"]["id_whitelist"] == ["qq:FriendMessage:12345678"]
+        assert config['platform_settings']['segmented_reply']['enable']
+        assert config['provider_settings']['computer_use_runtime'] == 'none'
+        assert not config['provider_ltm_settings']['group_message_history_enable']
+        group_config = bootstrap.make_config(DEFAULT_CONFIG, {**settings, 'group_ids': ['77777777']}, hash_dashboard_password, hash_md5_dashboard_password)
+        assert '77777777' in group_config['platform_settings']['id_whitelist']
+        assert group_config['provider_ltm_settings']['active_reply']['enable']
+        assert group_config['provider_ltm_settings']['group_message_history_enable']
         assert verify_dashboard_password(config["dashboard"]["pbkdf2_password"], settings["dashboard_password"])
         db = SQLiteDatabase(str(data / "data_v4.db"))
         await db.initialize()
@@ -71,6 +89,40 @@ async def main():
         content = (data / "cmd_config.json").read_bytes()
         await bootstrap.initialize(data, {**settings, "api_key": "changed"}, "changed")
         assert (data / "cmd_config.json").read_bytes() == content
+        from upgrade_companion import upgrade
+        proactive['friend_settings']['schedule_settings']['max_unanswered_times'] = 2
+        proactive_file.write_text(json.dumps(proactive), encoding='utf-8')
+        await upgrade(data, settings)
+        after = json.loads((data / 'cmd_config.json').read_text(encoding='utf-8'))
+        assert after['provider_sources'] == config['provider_sources']
+        assert after['admins_id'] == config['admins_id']
+        assert after['platform_settings']['id_whitelist'] == config['platform_settings']['id_whitelist']
+        assert json.loads(proactive_file.read_text(encoding='utf-8'))['friend_settings']['schedule_settings']['max_unanswered_times'] == 2
+        db = SQLiteDatabase(str(data / 'data_v4.db'))
+        await db.initialize()
+        assert (await db.get_persona_by_id('dafeiyu')).system_prompt == '测试大肥鱼人格'
+        legacy = (ROOT / 'bootstrap/persona-legacy-v1.txt').read_text(encoding='utf-8-sig')
+        await db.update_persona('dafeiyu', system_prompt=legacy)
+        await db.engine.dispose()
+        await upgrade(data, settings)
+        db = SQLiteDatabase(str(data / 'data_v4.db'))
+        await db.initialize()
+        assert (await db.get_persona_by_id('dafeiyu')).system_prompt == (ROOT / 'bootstrap/persona.txt').read_text(encoding='utf-8-sig')
+        await db.engine.dispose()
+        from import_meme_library import import_library
+        sample_zip = data / 'personal-test.zip'
+        with zipfile.ZipFile(sample_zip, 'w') as bundle:
+            bundle.writestr('directories/plugin_data/meme_manager/packs/sample/memes/happy/sample.png', b'test fixture')
+            bundle.writestr('config/cmd_config.json', '{"secret":"must-not-import"}')
+        assert import_library(sample_zip, data) == 1
+        assert not (data / 'config/cmd_config.json').exists()
+        assert (data / 'plugin_data/meme_manager/packs/personal-import/memes/happy/sample.png').read_bytes() == b'test fixture'
+        try:
+            import_library(sample_zip, data)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError('Existing private meme library was overwritten')
     assert json.dumps(DEFAULT_CONFIG, sort_keys=True) == before
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
     assert compose["services"]["astrbot"]["ports"] == ["127.0.0.1:6185:6185"]

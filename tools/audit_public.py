@@ -20,6 +20,7 @@ RULES = {
 PRIVATE_TOP = {'private', 'data', 'runtime', 'backups', '.research', '.runtime-test', '.publish', '.git'}
 issues = []
 count = 0
+private_values = []
 
 
 def inspect_bytes(name, content, depth=0, third_party=False):
@@ -49,6 +50,8 @@ def inspect_bytes(name, content, depth=0, third_party=False):
         return
     for label, pattern in RULES.items():
         for match in pattern.finditer(text):
+            if third_party and label == 'machine hostname' and name.endswith('!pages/app/shared/fa.min.css') and match.group().lower() in {'laptop-' + suffix for suffix in ('house', 'medical')}:
+                continue  # Font Awesome icon class names, reviewed in the pinned CSS.
             if third_party and label == 'personal Windows profile path' and name.endswith('!tests/test_faiss_path_bridge.py'):
                 segments = re.split(r'[\\/]+', match.group())
                 if len(segments) >= 3 and segments[2] in {'test', '张三'}:
@@ -58,6 +61,14 @@ def inspect_bytes(name, content, depth=0, third_party=False):
                 continue
             line = text.count('\n', 0, match.start()) + 1
             issues.append((f'{name}:{line}', label))
+    for value in private_values:
+        pattern = re.escape(value)
+        if value.isdigit():
+            pattern = r'(?<!\d)' + pattern + r'(?!\d)'
+        match = re.search(pattern, text)
+        if match:
+            line = text.count('\n', 0, match.start()) + 1
+            issues.append((f'{name}:{line}', 'private backup value (redacted)'))
     if not third_party:
         for line, value in enumerate(text.splitlines(), 1):
             if re.search(r'[A-Za-z]:[\\/]+Github[\\/]+DSdeploy\b', value, re.I):
@@ -69,7 +80,11 @@ def main():
     parser.add_argument('--archive', action='append', default=[])
     parser.add_argument('--staged', action='store_true')
     parser.add_argument('--tracked', action='store_true')
+    parser.add_argument('--private-values', help='Local ignored JSON list; values are never printed')
     args = parser.parse_args()
+    if args.private_values:
+        private_values.extend(value for value in json.loads(Path(args.private_values).read_text(encoding='utf-8-sig'))
+                              if isinstance(value, str) and len(value) >= 6)
     files = collect()
     allowed = {path.relative_to(ROOT).as_posix() for path in files}
     if args.staged or args.tracked:

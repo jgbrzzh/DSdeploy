@@ -6,5 +6,7 @@ RUN python /opt/dsdeploy-install.py /opt/dsdeploy-vendor /opt/dsdeploy-plugins /
     && python -m pip install --no-cache-dir -c /tmp/dsdeploy-core-constraints.txt \
        -r /opt/dsdeploy-plugins/astrbot_plugin_livingmemory/requirements.txt \
        -r /opt/dsdeploy-plugins/astrbot_plugin_proactive_chat/requirements.txt \
+       -r /opt/dsdeploy-plugins/meme_manager/requirements.txt \
+       -r /opt/dsdeploy-plugins/astrbot_plugin_signin/requirements.txt \
     && python -m pip check
 WORKDIR /AstrBot

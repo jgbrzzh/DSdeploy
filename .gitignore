@@ -24,3 +24,4 @@ __pycache__/
 *.pem
 *.key
 .publish/
+astrbot_backup*.zip

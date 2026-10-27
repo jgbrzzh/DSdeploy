@@ -17,6 +17,24 @@
       "repo": "https://github.com/Pancakes-Labs/astrbot_plugin_proactive_chat",
       "archive": "proactive_chat.zip",
       "license": "AGPL-3.0"
+    },
+    {
+      "name": "meme_manager",
+      "repo": "https://github.com/anka-afk/astrbot_plugin_meme_manager",
+      "commit": "5cec301481b8b99682ba2a0021a432656a3a92ec",
+      "version": "5.2.9",
+      "archive": "meme_manager.zip",
+      "license": "MIT",
+      "sha256": "b031bf35d7cde8e55e84bcb1037dad64444b97a8a23d6f83098c836da4d9c28e"
+    },
+    {
+      "name": "astrbot_plugin_signin",
+      "repo": "https://github.com/firefiy99/astrbot_plugin_signin",
+      "commit": "ec03851567829013fcf3e3e1e2c3ee381f77bfae",
+      "version": "1.3.2",
+      "archive": "signin.zip",
+      "license": "MIT",
+      "sha256": "55aff779ebe21c32067ad8d97cf52a3d5fe1d0a801dc35b9a37ef443b21e4583"
     }
   ]
 }

@@ -12,6 +12,8 @@ DSdeploy 是部署脚本、配置生成器及操作文档的集合，不是 Astr
 | BGE-M3 | BAAI 等模型作者 | 通过 [Ollama 模型库](https://ollama.com/library/bge-m3) 下载，保留模型自身许可 |
 | LivingMemory | lxfight 与贡献者 | 未修改的 AGPL-3.0 源码归档，见 vendor/manifest.json 及归档内 LICENSE |
 | Proactive Chat | DBJD-CR 与贡献者 | 未修改的 AGPL-3.0 源码归档，见 vendor/manifest.json 及归档内 LICENSE |
+| meme_manager | anka 与贡献者 | 未修改的 MIT 源码归档，见 vendor/manifest.json 及归档内 LICENSE |
+| 积分签到 | 小星萤与贡献者 | 未修改的源码归档，上游 README 明确声明 MIT；来源见 vendor/manifest.json |
 
 vendor 中的 ZIP 由上游固定提交执行 `git archive` 得到，包含对应版本的完整源码、上游说明与许可证，不含本项目使用者的配置或运行数据。精确版本、提交和 SHA-256 记录在 [vendor/manifest.json](vendor/manifest.json)。用户可直接解压检查源码。
 

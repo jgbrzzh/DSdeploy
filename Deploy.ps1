@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages')]
+    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes')]
     [string]$Action = 'Start',
     [switch]$NoBrowser,
     [ValidateSet('DaoCloud','1ms','Official')]
@@ -46,6 +46,7 @@ function Write-DataBackup([string]$Destination) {
             if (-not (Test-Path -LiteralPath $source)) { continue }
             foreach ($file in Get-BackupFiles $source) {
                 $entry = $file.Substring($Root.TrimEnd('\','/').Length + 1).Replace('\','/')
+                if ($entry -eq 'private/meme-import.zip') { continue }
                 [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file, $entry, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
             }
         }
@@ -141,6 +142,9 @@ function Initialize-Settings {
     if ($owner -notmatch '^\d{5,12}$') { throw 'QQ 号应为 5 到 12 位数字。' }
     $bot = Read-Host '机器人小号 QQ 号（扫码登录时请选择这个号）'
     if ($bot -notmatch '^\d{5,12}$' -or $bot -eq $owner) { throw '请填写与主人 QQ 不同的机器人小号。' }
+    $groupText = Read-Host '允许群聊的群号（可选，逗号分隔；直接回车只启用主人私聊）'
+    $groups = @($groupText -split '[,，;；\s]+' | Where-Object { $_ } | Select-Object -Unique)
+    foreach ($group in $groups) { if ($group -notmatch '^\d{5,12}$') { throw '群号应为 5 到 12 位数字。' } }
     $base = Read-Default '模型 API 地址' 'https://api.deepseek.com/v1'
     $uri = $null
     if (-not [Uri]::TryCreate($base, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -ne 'https' -or $uri.UserInfo) {
@@ -153,7 +157,7 @@ function Initialize-Settings {
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
     if ([string]::IsNullOrWhiteSpace($key)) { throw 'API Key 不能为空。' }
     $settings = [ordered]@{
-        owner_qq=$owner; bot_qq=$bot; api_base=$base.TrimEnd('/'); model=$model
+        owner_qq=$owner; bot_qq=$bot; group_ids=$groups; api_base=$base.TrimEnd('/'); model=$model
         api_key=$key.Trim(); onebot_token=(New-Token); napcat_token=(New-Token)
         dashboard_password=('Whale!' + (New-Token).Substring(0,20)); jwt_secret=(New-Token)
     }
@@ -232,6 +236,25 @@ function Wait-Ollama {
     }
     return $false
 }
+function Invoke-CompanionMaintenance([string]$Entry) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Root 'data/astrbot/cmd_config.json'))) {
+        throw '请先完成首次启动。'
+    }
+    $probe = Get-DockerProbe ((Get-ComposeArgs) + @('ps','--status','running','--services'))
+    if ($probe.ExitCode -ne 0) { throw '无法读取本包运行状态。' }
+    $running = @($probe.Output | Where-Object { $_ -in @('astrbot','napcat','ollama') })
+    $backupDirectory = Join-Path $Root 'backups'
+    New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
+    $destination = Join-Path $backupDirectory ('陪伴升级前-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+    Invoke-Compose @('stop')
+    try {
+        Write-DataBackup $destination
+        Write-Host "已先备份到：$destination"
+        Invoke-Compose @('run','--rm','--no-deps','--entrypoint','python','astrbot',('/bootstrap/'+$Entry))
+    } finally {
+        if ($running.Count -gt 0) { Invoke-Compose (@('start') + $running) }
+    }
+}
 try {
     if ($Action -eq 'InstallDocker') {
         $installDirectory = Join-Path $Root 'runtime/DockerDesktop'
@@ -270,7 +293,7 @@ try {
     }
     if ($Action -eq 'Check') {
         Write-Host '检查部署包结构…'
-        foreach ($file in @('compose.yaml','Dockerfile','bootstrap/bootstrap.py','bootstrap/persona.txt','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip')) {
+        foreach ($file in @('compose.yaml','Dockerfile','bootstrap/bootstrap.py','bootstrap/persona.txt','bootstrap/companion_profile.json','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip')) {
             if (-not (Test-Path -LiteralPath (Join-Path $Root $file))) { throw "缺少文件：$file" }
         }
         Require-Docker
@@ -325,7 +348,7 @@ try {
                 }
                 Lock-Images
             }
-            $buildFiles = @('Dockerfile','bootstrap/install_plugins.py','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','compose.lock.json')
+            $buildFiles = @('Dockerfile','bootstrap/install_plugins.py','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip','compose.lock.json')
             $signature = ($buildFiles | ForEach-Object { Get-Sha256 (Join-Path $Root $_) }) -join ':'
             $buildState = Join-Path $Root 'private/build-state.json'
             $imageExists = & docker image ls -q dsdeploy-astrbot:local
@@ -375,6 +398,18 @@ try {
         'Stop' { Invoke-Compose @('stop'); Write-Host '服务已停止，聊天记录和登录状态保留。' }
         'Status' { Invoke-Compose @('ps'); Write-Host 'QQ 在线与反向连接状态请查看 NapCat 面板；模型状态请在 AstrBot 测试。' }
         'Logs' { Invoke-Compose @('logs','--tail','150','-f') }
+        'UpgradeCompanion' { Invoke-CompanionMaintenance 'upgrade_companion.py' }
+        'ImportMemes' {
+            $inputArchive = Read-Host '请输入你自己的 AstrBot 备份 ZIP 完整路径（只导入表情图片）'
+            $inputArchive = $inputArchive.Trim().Trim('"')
+            if (-not (Test-Path -LiteralPath $inputArchive -PathType Leaf) -or [IO.Path]::GetExtension($inputArchive) -ne '.zip') {
+                throw '没有找到有效的 ZIP 文件。'
+            }
+            $privateDirectory = Join-Path $Root 'private'
+            New-Item -ItemType Directory -Force -Path $privateDirectory | Out-Null
+            Copy-Item -LiteralPath $inputArchive -Destination (Join-Path $privateDirectory 'meme-import.zip') -Force
+            Invoke-CompanionMaintenance 'import_meme_library.py'
+        }
         'Backup' {
             $running = @(& docker @((Get-ComposeArgs) + @('ps','--status','running','--services')))
             if ($LASTEXITCODE -ne 0) { throw '读取运行状态失败。' }

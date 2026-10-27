@@ -9,11 +9,17 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, "/AstrBot")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from companion_profile import configure_core, configure_plugin
+
+PLUGIN_NAMES = ['astrbot_plugin_livingmemory', 'astrbot_plugin_proactive_chat',
+                'meme_manager', 'astrbot_plugin_signin']
 
 
 def make_config(defaults, settings, password_hash, md5_hash):
     config = copy.deepcopy(defaults)
     model_id = "deepseek/" + settings["model"]
+    groups = settings.get('group_ids', [])
     config["admins_id"] = [settings["owner_qq"]]
     config["wake_prefix"] = ["/", "大肥鱼"]
     config["timezone"] = "Asia/Shanghai"
@@ -24,7 +30,7 @@ def make_config(defaults, settings, password_hash, md5_hash):
     }]
     config["platform_settings"].update({
         "enable_id_white_list": True,
-        "id_whitelist": ["qq:FriendMessage:" + settings["owner_qq"]],
+        "id_whitelist": ["qq:FriendMessage:" + settings["owner_qq"], *groups],
         "wl_ignore_admin_on_friend": True, "wl_ignore_admin_on_group": False,
         "friend_message_needs_wake_prefix": False,
         "ignore_bot_self_message": True,
@@ -46,6 +52,7 @@ def make_config(defaults, settings, password_hash, md5_hash):
         "embedding_api_base": "http://ollama:11434", "embedding_model": "bge-m3",
         "embedding_dimensions": 1024, "timeout": 180, "proxy": "",
     })
+    configure_core(config, model_id, groups)
     if "agent_runner" in config:
         runner = config["agent_runner"]
         if runner.get("runner_type") != "local":
@@ -81,7 +88,8 @@ def install_plugins(data, settings, source=Path("/opt/dsdeploy-plugins")):
     umo = "qq:FriendMessage:" + settings["owner_qq"]
     configs = data / "config"
     configs.mkdir(parents=True, exist_ok=True)
-    for name in ["astrbot_plugin_livingmemory", "astrbot_plugin_proactive_chat"]:
+    groups = settings.get('group_ids', [])
+    for name in PLUGIN_NAMES:
         plugin_source = source / name
         target = data / "plugins" / name
         if not target.exists():
@@ -98,11 +106,11 @@ def install_plugins(data, settings, source=Path("/opt/dsdeploy-plugins")):
         if name.endswith("livingmemory"):
             config["provider_settings"].update({"embedding_provider_id": "bge_m3_local", "llm_provider_id": "deepseek/" + settings["model"]})
             config["filtering_settings"].update({"memory_scope_mode": "session", "use_persona_filtering": True, "use_session_filtering": True})
-            config["access_control"].update({"whitelist_enabled": True, "allowed_ids": umo})
-            config["session_manager"]["enable_full_group_capture"] = False
+            config["access_control"].update({"whitelist_enabled": True, "allowed_ids": '\n'.join([umo, *['qq:GroupMessage:' + group for group in groups]])})
+            config["session_manager"]["enable_full_group_capture"] = bool(groups)
             config["reflection_engine"]["summary_trigger_rounds"] = 10
             config["agent_tools"].update({"enable_recall_tool": True, "enable_memorize_tool": True})
-        else:
+        elif name == 'astrbot_plugin_proactive_chat':
             friend = config["friend_settings"]
             friend.update({"enable": True, "session_list": [umo]})
             friend["auto_trigger_settings"].update({"enable_auto_trigger": True, "auto_trigger_after_minutes": 60})
@@ -113,10 +121,14 @@ def install_plugins(data, settings, source=Path("/opt/dsdeploy-plugins")):
                 "可以关心近况或分享一个轻松想法，不编造对方经历，不催促回复，不用内疚或失落施压。"
                 "只输出要发送的简短中文消息。"
             )
-            config["group_settings"]["enable"] = False
+            config["group_settings"]["enable"] = bool(groups)
+            config["group_settings"]["session_list"] = ['qq:GroupMessage:' + group for group in groups]
             config["web_admin"]["enabled"] = False
             config["notification_settings"]["enabled"] = False
             config["telemetry_config"]["enabled"] = False
+        elif name == 'astrbot_plugin_signin':
+            config['admin_umo_list'] = settings['owner_qq']
+        configure_plugin(name, config, 'deepseek/' + settings['model'])
         temporary = config_file.with_suffix(".tmp")
         temporary.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temporary, config_file)

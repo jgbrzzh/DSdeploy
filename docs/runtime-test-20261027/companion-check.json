@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-27",
+  "core": "4.29.3",
+  "plugins_loaded": {
+    "astrbot_plugin_livingmemory": true,
+    "astrbot_plugin_proactive_chat": true,
+    "meme_manager": true,
+    "astrbot_plugin_signin": true
+  },
+  "dashboard_login": true,
+  "memory_api": "ok",
+  "segmented_reply": true,
+  "proactive_history": "hybrid",
+  "max_unanswered": 3,
+  "host_execution": "disabled",
+  "real_qq_or_model_test": false
+}
