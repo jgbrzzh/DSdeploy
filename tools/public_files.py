@@ -7,7 +7,7 @@ COMMANDS = ['一键启动.cmd', '一键停止.cmd', '查看状态.cmd', '查看�
             '升级陪伴配置.cmd', '导入我的表情库.cmd',
             '下载准备镜像.cmd', '更新镜像.cmd', '导入初始配置.cmd', '导入内置表情库.cmd', '实例设置.cmd', '配置DS联网搜索.cmd']
 PACKAGE_ROOTS = ['Deploy.ps1', 'Dockerfile', 'compose.yaml', '.dockerignore',
-                 'README.md', 'LICENSE', 'NOTICE.md', 'VERSION', *COMMANDS]
+                 'README.md', '先看这里.md', 'LICENSE', 'NOTICE.md', 'VERSION', *COMMANDS]
 SOURCE_ROOTS = [*PACKAGE_ROOTS, '.gitignore', '.gitattributes']
 
 
