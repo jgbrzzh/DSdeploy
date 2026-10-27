@@ -70,6 +70,28 @@ async def main():
         assert proactive_file.read_bytes() == saved_plugin_config
         await bootstrap.initialize(data, settings, "测试大肥鱼人格")
         config = json.loads((data / "cmd_config.json").read_text(encoding="utf-8"))
+        assert config['provider_settings']['web_search']
+        assert config['provider_settings']['websearch_provider'] == 'deepseek'
+        assert config['provider_settings']['websearch_deepseek_key'] == [settings['api_key']]
+        assert config['provider_settings']['web_search_link']
+        from deepseek_search import enable_existing
+        search_test = json.loads(json.dumps(config))
+        search_test['provider_settings']['websearch_deepseek_key'] = []
+        search_test['provider_sources'][0]['key'] = ['new-official-fixture']
+        enable_existing(search_test, {**settings, 'search_api_key': 'stale-initial-fixture'})
+        assert search_test['provider_settings']['websearch_deepseek_key'] == ['new-official-fixture']
+        assert search_test['admins_id'] == config['admins_id']
+        third_party = bootstrap.make_config(DEFAULT_CONFIG, {**settings, 'api_base': 'https://example.invalid/v1'}, hash_dashboard_password, hash_md5_dashboard_password)
+        assert not third_party['provider_settings']['web_search']
+        assert third_party['provider_settings']['websearch_deepseek_key'] == []
+        untouched = json.dumps(third_party, sort_keys=True)
+        try:
+            enable_existing(third_party, {})
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError('Third-party key was sent to official search configuration')
+        assert json.dumps(third_party, sort_keys=True) == untouched
         assert config["agent_runner"]["config"]["model"]["provider_id"] == "deepseek/deepseek-flash"
         assert config["platform_settings"]["id_whitelist"] == ["qq:FriendMessage:12345678"]
         assert config['platform_settings']['segmented_reply']['enable']
@@ -125,8 +147,8 @@ async def main():
             raise AssertionError('Existing private meme library was overwritten')
     assert json.dumps(DEFAULT_CONFIG, sort_keys=True) == before
     compose = yaml.safe_load((ROOT / "compose.yaml").read_text(encoding="utf-8"))
-    assert compose["services"]["astrbot"]["ports"] == ["127.0.0.1:6185:6185"]
-    assert compose["services"]["napcat"]["ports"] == ["127.0.0.1:6099:6099"]
+    assert compose["services"]["astrbot"]["ports"] == ["127.0.0.1:${DSDEPLOY_ASTRBOT_PORT:-26185}:6185"]
+    assert compose["services"]["napcat"]["ports"] == ["127.0.0.1:${DSDEPLOY_NAPCAT_PORT:-26099}:6099"]
     assert not compose["services"]["ollama"].get("ports")
     print("PASS: upstream defaults + password hashes + SQLite persona + bundled plugin configs + restart preservation + YAML")
 

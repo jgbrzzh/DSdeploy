@@ -98,14 +98,20 @@ def main():
                        "DSDEPLOY_FIXTURE": str(root)}
         environment.pop("PSModulePath", None)  # Match a double-click from cmd, not inherited pwsh 7 modules.
 
-        def run(action, success=True):
+        def run(action, success=True, extra=()):
             process = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                                      "-File", str(root / "Deploy.ps1"), "-Action", action, "-NoBrowser"],
+                                      "-File", str(root / "Deploy.ps1"), "-Action", action, "-NoBrowser", *extra],
                                      env=environment, capture_output=True)
             if (process.returncode == 0) != success:
                 raise AssertionError(process.stdout.decode("utf-8", errors="replace") + process.stderr.decode("utf-8", errors="replace"))
 
-        # Enforce the location requirement before any image pulls or bootstrap.
+        run('ConfigureInstance', extra=['-AstrBotPort','6185','-NapCatPort','6099'])
+        instance_path = root / 'private/instance.json'
+        instance = json.loads(instance_path.read_text(encoding='utf-8'))
+        assert instance['project'].startswith('dsdeploy-') and instance['project'] != 'dsdeploy'
+        instance['docker_mode'] = 'local'
+        instance_path.write_text(json.dumps(instance), encoding='utf-8')
+        # Enforce the explicitly local disk mode before pulls or bootstrap.
         run("Start", success=False)
         commands = (root / "commands.jsonl").read_text(encoding="utf-8")
         assert '"pull"' not in commands
@@ -153,6 +159,7 @@ def main():
             assert (root / "compose.lock.json").read_bytes() == lock
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             assert sum('build' in args for args in calls) == 1
+            assert all(args[args.index('--project-name')+1] == instance['project'] for args in calls if args[0]=='compose' and '--project-name' in args)
             assert sum(args[0] == 'pull' for args in calls) == 3
             start_calls = calls[count_before_start:]
             assert not any('build' in args or args[0] == 'pull' or 'run' in args for args in start_calls)
@@ -186,10 +193,12 @@ def main():
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             restarts = [args for args in calls if 'start' in args]
             assert restarts[-1][-3:] == ['start', 'astrbot', 'ollama']
+            run('ConfigureSearch')
+            assert config.read_bytes() == saved
             run('InstallMemePacks')
             assert config.read_bytes() == saved
             run('UpgradeCompanion')
-            assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 2
+            assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 3
             assert config.read_bytes() == saved
             (root / "fail-bootstrap").touch()
             run('Start')  # Startup no longer invokes bootstrap at all.

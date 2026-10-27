@@ -1,8 +1,11 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig','InstallMemePacks')]
+    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig','InstallMemePacks','ConfigureInstance','ConfigureSearch')]
     [string]$Action = 'Start',
     [switch]$NoBrowser,
+    [ValidateRange(0,65535)][int]$AstrBotPort = 0,
+    [ValidateRange(0,65535)][int]$NapCatPort = 0,
+    [switch]$AdoptData,
     [ValidateSet('DaoCloud','1ms','Official')]
     [string]$ImageSource = 'DaoCloud'
 )
@@ -10,6 +13,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $Root = $PSScriptRoot
 Set-Location -LiteralPath $Root
+foreach ($isolationPath in @($Root, (Join-Path $Root 'private'), (Join-Path $Root 'data'))) {
+    if ((Test-Path -LiteralPath $isolationPath) -and ((Get-Item -LiteralPath $isolationPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw '实例根目录、private 和 data 不能是指向另一目录的链接。'
+    }
+}
 $env:TEMP = Join-Path $Root 'runtime/tmp'
 $env:TMP = $env:TEMP
 $env:PIP_CACHE_DIR = Join-Path $Root 'runtime/pip-cache'
@@ -22,6 +30,7 @@ $Utf8 = New-Object System.Text.UTF8Encoding($false)
 function Write-Utf8([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $Utf8)
 }
+. (Join-Path $Root 'bootstrap/instance.ps1')
 function Get-Sha256([string]$Path) {
     $stream = [IO.File]::OpenRead($Path)
     $hasher = [Security.Cryptography.SHA256]::Create()
@@ -89,7 +98,7 @@ function Pull-DeploymentImage([string]$Canonical) {
     if ($reference -ne $Canonical) { Invoke-Docker -DockerArgs @('tag',$reference,$Canonical) }
 }
 function Get-ComposeArgs {
-    $result = @('compose', '--project-directory', $Root, '-f', (Join-Path $Root 'compose.yaml'))
+    $result = @('compose', '--project-name', $script:Instance.project, '--project-directory', $Root, '-f', (Join-Path $Root 'compose.yaml'))
     if (Test-Path -LiteralPath (Join-Path $Root 'compose.lock.json')) {
         $result += @('-f', (Join-Path $Root 'compose.lock.json'))
     }
@@ -116,6 +125,7 @@ function Require-Docker {
     Invoke-Docker -DockerArgs @('compose','version','--short')
 }
 function Require-LocalDisk {
+    if ($script:Instance.docker_mode -eq 'shared') { return }
     $diskRoot = Join-Path $Root 'data/docker-desktop'
     $localDisks = @(Get-ChildItem -LiteralPath $diskRoot -Filter '*.vhdx' -File -Recurse -ErrorAction SilentlyContinue)
     if ($localDisks.Count -eq 0) {
@@ -156,18 +166,25 @@ function Initialize-Settings {
     try { $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
     if ([string]::IsNullOrWhiteSpace($key)) { throw 'API Key 不能为空。' }
+    $searchKey = $key.Trim()
+    if ($uri.Host -ne 'api.deepseek.com') {
+        $searchSecret = Read-Host 'DeepSeek 官方搜索 Key（与第三方模型 Key 不同；可留空稍后在面板填写）' -AsSecureString
+        $searchPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($searchSecret)
+        try { $searchKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($searchPointer).Trim() }
+        finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($searchPointer) }
+    }
     $settings = [ordered]@{
         owner_qq=$owner; bot_qq=$bot; group_ids=$groups; api_base=$base.TrimEnd('/'); model=$model
-        api_key=$key.Trim(); onebot_token=(New-Token); napcat_token=(New-Token)
+        api_key=$key.Trim(); search_api_key=$searchKey; onebot_token=(New-Token); napcat_token=(New-Token)
         dashboard_password=('Whale!' + (New-Token).Substring(0,20)); jwt_secret=(New-Token)
     }
     New-Item -ItemType Directory -Force -Path $private | Out-Null
     Write-Utf8 $settingsPath ($settings | ConvertTo-Json -Depth 10)
     Write-Utf8 (Join-Path $private '面板登录信息.txt') @"
-AstrBot: http://127.0.0.1:6185
+AstrBot: http://127.0.0.1:$($script:Instance.astrbot_port)
 用户名: astrbot
 初始密码: $($settings.dashboard_password)
-NapCat: http://127.0.0.1:6099/webui
+NapCat: http://127.0.0.1:$($script:Instance.napcat_port)/webui
 Token: $($settings.napcat_token)
 这些是首次初始化时的凭据；以后在面板修改的密码以面板为准。
 请勿将 private、data 或 backups 目录分享给他人。
@@ -217,11 +234,10 @@ function Lock-Images {
     }
     Write-Utf8 (Join-Path $Root 'compose.lock.json') (@{services=$services} | ConvertTo-Json -Depth 5)
 }
-function Wait-Panel([int]$Port) {
-    $panelPath = if ($Port -eq 6099) { '/webui' } else { '/' }
+function Wait-Panel([int]$Port, [string]$PanelPath = '/') {
     for ($i=0; $i -lt 60; $i++) {
         try {
-            $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port$panelPath" -TimeoutSec 2
+            $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port$PanelPath" -TimeoutSec 2
             if ($response.StatusCode -ge 200 -and $response.StatusCode -lt 400) { return $true }
         } catch { }
         Start-Sleep -Seconds 2
@@ -249,7 +265,7 @@ function Require-PreparedImages {
     }
     $saved = Get-Content -LiteralPath $state -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($saved.signature -ne (Get-BuildSignature)) { throw '程序或插件依赖已更新，请先运行“下载准备镜像.cmd”重新准备运行环境。' }
-    foreach ($image in @('dsdeploy-astrbot:local')) {
+    foreach ($image in @($script:Instance.image)) {
         $probe = Get-DockerProbe @('image','inspect',$image,'--format','{{.Id}}')
         if ($probe.ExitCode -ne 0) { throw '运行镜像缺失，请运行“下载准备镜像.cmd”。' }
     }
@@ -288,7 +304,7 @@ function Prepare-Images([bool]$Refresh = $false) {
     }
     $signature = Get-BuildSignature
     $buildState = Join-Path $Root 'private/build-state.json'
-    $imageExists = & docker image ls -q dsdeploy-astrbot:local
+    $imageExists = & docker image ls -q $script:Instance.image
     if ($LASTEXITCODE -ne 0) { throw '检查本地运行镜像失败。' }
     $needsBuild = $true
     if ((Test-Path -LiteralPath $buildState) -and $imageExists) {
@@ -364,6 +380,11 @@ function Invoke-CompanionMaintenance([string]$Entry) {
     }
 }
 try {
+    Initialize-Instance
+    if ($Action -eq 'ConfigureInstance') {
+        Get-Content -LiteralPath (Join-Path $Root 'private/本实例面板地址.txt') -Encoding UTF8
+        exit 0
+    }
     if ($Action -eq 'InstallDocker') {
         $installDirectory = Join-Path $Root 'runtime/DockerDesktop'
         if (Test-Path -LiteralPath (Join-Path $installDirectory 'Docker Desktop.exe')) {
@@ -371,9 +392,14 @@ try {
             Write-Host '包内 Docker Desktop 已存在，已请求启动。'
             exit 0
         }
-        if (Get-Command docker -ErrorAction SilentlyContinue) {
-            throw "检测到现有 Docker。为避免改动其他部署，请在它的设置中将数据盘迁到 $(Join-Path $Root 'data/docker-desktop') 后再启动本包。"
+        if ((Get-Command docker -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath (Join-Path $env:ProgramFiles 'Docker/Docker/resources/bin/docker.exe'))) {
+            $script:Instance.docker_mode = 'shared'
+            Write-Utf8 (Join-Path $Root 'private/instance.json') ($script:Instance | ConvertTo-Json)
+            Write-Host '复用现有 Docker 引擎，不重装、不迁移旧数据盘。请直接运行“下载准备镜像.cmd”。'
+            exit 0
         }
+        $script:Instance.docker_mode = 'local'
+        Write-Utf8 (Join-Path $Root 'private/instance.json') ($script:Instance | ConvertTo-Json)
         $downloadDirectory = Join-Path $Root 'runtime/downloads'
         New-Item -ItemType Directory -Force -Path $downloadDirectory | Out-Null
         $architecture = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
@@ -437,21 +463,22 @@ try {
             $modelProbe = Get-DockerProbe ((Get-ComposeArgs) + @('exec','-T','ollama','ollama','show','bge-m3'))
             if ($modelProbe.ExitCode -ne 0) { throw 'bge-m3 尚未准备好，请运行“下载准备镜像.cmd”。' }
             Invoke-Compose @('up','-d','--no-build','--pull','never')
-            $astrReady = Wait-Panel 6185
-            $napReady = Wait-Panel 6099
+            $astrReady = Wait-Panel $script:Instance.astrbot_port
+            $napReady = Wait-Panel $script:Instance.napcat_port '/webui'
             if (-not $astrReady -or -not $napReady) { throw '部分面板尚未就绪，请用“查看日志.cmd”检查；服务及数据已保留。' }
             Write-Host '两个管理面板已就绪。请在 NapCat 扫码登录，之后用主人 QQ 私聊机器人测试。' -ForegroundColor Green
             Write-Host '面板账号和 Token 位于 private/面板登录信息.txt。此检查不代表 QQ 收发消息已验收。'
             if (-not $NoBrowser) {
                 Start-Process (Join-Path $Root 'private/面板登录信息.txt')
-                Start-Process 'http://127.0.0.1:6099/webui'
-                Start-Process 'http://127.0.0.1:6185'
+                Start-Process ('http://127.0.0.1:'+$script:Instance.napcat_port+'/webui')
+                Start-Process ('http://127.0.0.1:'+$script:Instance.astrbot_port)
             }
         }
         'Stop' { Invoke-Compose @('stop'); Write-Host '服务已停止，聊天记录和登录状态保留。' }
         'Status' { Invoke-Compose @('ps'); Write-Host 'QQ 在线与反向连接状态请查看 NapCat 面板；模型状态请在 AstrBot 测试。' }
         'Logs' { Invoke-Compose @('logs','--tail','150','-f') }
         'InstallMemePacks' { Invoke-CompanionMaintenance 'install_meme_packs.py' }
+        'ConfigureSearch' { Invoke-CompanionMaintenance 'deepseek_search.py' }
         'UpgradeCompanion' { Invoke-CompanionMaintenance 'upgrade_companion.py' }
         'ImportMemes' {
             $inputArchive = Read-Host '请输入你自己的 AstrBot 备份 ZIP 完整路径（只导入表情图片）'

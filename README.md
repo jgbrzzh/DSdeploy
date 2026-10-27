@@ -2,6 +2,10 @@
 
 将 AstrBot、NapCat、DeepSeek API、长期记忆与主动陪伴接到 QQ。面向 Windows 用户，提供首次配置和之后的一键启动入口。
 
+v1.3 同时加入 DS API 联网搜索与网页正文读取：官方 DeepSeek Key 首次自动填入搜索配置，已有实例可单独配置。[搜索说明](docs/DS联网搜索.md)。
+
+v1.3 支持按目录隔离：新版可在另一个目录与旧版并行运行，各有容器项目、镜像标签、面板端口、业务数据和备份。[多版本隔离说明](docs/多版本隔离.md)。
+
 v1.2.1 已内置大肥鱼（138 张）和菲比啾比（101 张）两套公开表情库，导入初始配置时自动安装；已有部署可单独导入。
 
 v1.2 将镜像准备、配置导入和服务启动拆开，便于独立升级。[分步部署与升级](docs/分步部署与升级.md)。
@@ -17,7 +21,7 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 ## 第一次使用
 
 1. 将整个部署包解压到固定目录，例如 `D:\QQ大肥鱼`。不要直接在压缩包内运行。
-2. 没装 Docker Desktop 时，双击 `安装Docker.cmd`。安装器下载到包内，程序安装到 `runtime/DockerDesktop`，WSL 数据盘定向到 `data/docker-desktop`。根据安装器完成 WSL2/虚拟化设置；需要重启时先重启。打开 Docker Desktop，等待引擎运行。
+2. 已有 Docker（包括旧版部署使用的 Docker）时直接复用，不重装或迁移旧数据盘。没装 Docker Desktop 时，双击 `安装Docker.cmd`。安装器下载到包内，程序安装到 `runtime/DockerDesktop`，WSL 数据盘定向到 `data/docker-desktop`。根据安装器完成 WSL2/虚拟化设置；需要重启时先重启。打开 Docker Desktop，等待引擎运行。
 3. 双击 `下载准备镜像.cmd`：下载或导入三个基础镜像、锁定版本、构建四插件依赖并准备 bge-m3。此步不需要 QQ 或 API Key，不导入机器人配置。
 4. 双击 `导入初始配置.cmd`：输入 QQ、模型与 Key，创建初始配置。已有配置保留；之后双击 `一键启动.cmd` 打开服务和面板。
 5. `private/面板登录信息.txt` 包含 AstrBot 账号/初始密码和 NapCat Token。在 NapCat 面板输入 Token，**扫码登录你刚填的机器人小号**。
@@ -35,6 +39,8 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 | 下载准备镜像.cmd | 准备镜像、插件依赖与向量模型；复用现有镜像锁 |
 | 更新镜像.cmd | 主动下载上游新版并更新镜像锁；不导入配置 |
 | 导入初始配置.cmd | 使用已准备镜像生成初始配置；不下载镜像 |
+| 配置DS联网搜索.cmd | 先备份，为本实例启用 DeepSeek Search/Fetch，不下载镜像 |
+| 实例设置.cmd | 创建并查看本目录独立实例、镜像标签与面板地址 |
 | 一键启动.cmd | 只启动已有配置的服务并打开面板；不下载、不导入 |
 | 一键停止.cmd | 停止本包服务，保留数据 |
 | 查看状态.cmd | 容器状态 |
@@ -56,7 +62,7 @@ Windows 10/11（支持 WSL2 的版本），Docker Desktop 的 Linux 容器模式
 - `private/docker-client`：本包 Docker 客户端配置；`data/docker-desktop`：Docker WSL 数据盘，镜像、构建缓存及容器日志保存在其中。
 - `data`、`private`、`backups`：业务数据、凭据及备份。
 
-若机器已有其他位置的 Docker，启动器不会自动迁移或重装它；必须先在 Docker Desktop 中把 Disk image location 设为包内 `data/docker-desktop`。未发现包内数据盘时，镜像准备和启动入口会停止。
+若已有 Docker，默认复用该引擎，不要求迁移旧数据盘，也不安装第二套 Docker Desktop。各实例的业务目录和容器分别隔离；Docker 引擎及基础镜像存储共享。只有本包新安装 Docker 的 local 模式才检查包内数据盘。
 Docker Desktop/WSL 是 Windows 安装的软件，仍会有注册表、用户设置与系统日志等系统记录；本包不能将这些操作系统记录变成便携文件。此约定约束本包管理的项目文件和大型数据。
 首次安装后请固定这个文件夹的位置；Docker 安装位置和数据盘不能只靠移动目录改名迁移。
 
@@ -67,8 +73,8 @@ Docker Desktop/WSL 是 Windows 安装的软件，仍会有注册表、用户设�
 
 ## 管理与扩展
 
-- AstrBot：<http://127.0.0.1:6185>，用户名 `astrbot`，密码由部署器随机生成。
-- NapCat：<http://127.0.0.1:6099/webui>，Token 随机生成。
+- AstrBot：地址见 `private/本实例面板地址.txt`，用户名 `astrbot`，密码由部署器随机生成。
+- NapCat：地址见 `private/本实例面板地址.txt`，Token 随机生成。
 - 反向 WebSocket 已设置为 `ws://astrbot:6199/ws`，双方共享随机连接密钥。不要改成容器内的 `127.0.0.1`。
 - 默认只允许主人私聊；群聊未放行。要开启群聊，在 AstrBot 白名单中按面板说明添加群，再使用 @ 或“大肥鱼”唤醒。
 - 在 AstrBot 的“人格”中编辑 `dafeiyu`。`bootstrap/persona.txt` 只用于首次初始化。
@@ -91,14 +97,14 @@ Docker Desktop/WSL 是 Windows 安装的软件，仍会有注册表、用户设�
 
 启动器不会自动更新版本。需要更新时先备份，再将 `compose.lock.json` 改名留存，重新启动会拉取新镜像并生成新的版本锁。
 回退除了恢复旧镜像锁，也应恢复配套数据备份，因为上游升级可能迁移数据库。
-同一台机器默认只运行一份本包（固定项目名 `dsdeploy`，固定端口 6185/6099）。
+同一台电脑可以在不同目录运行多个隔离实例，项目名、镜像标签、面板端口和数据分别保存。旧版 v1.0 仍使用原入口；新版另开目录，不覆盖旧版。
 
 ## 排查
 
 - 提示没有 Docker：安装 Docker Desktop 并启动；若安装后仍提示缺失，重新打开启动器。
 - 提示 Linux containers：在 Docker Desktop 菜单切换到 Linux 容器。
 - 拉取失败：默认已使用 DaoCloud；可用 ImageSource 参数切换为毫秒镜像或原站，或导入本地镜像。不会修改整机的 Docker 镜像源配置。
-- 端口占用：先停止占用 6185/6099 的旧部署，不要删除其数据。
+- 端口占用：使用本目录独立端口，不要停止旧版来让端口。首次可通过实例设置参数指定空闲端口。
 - NapCat 已登录但机器人不回答：先确认登录的是填写的小号；检查反向 WS 是否连接成功、URL 和双方 Token 是否一致。再在 AstrBot 面板单独测试模型。
 - API 401：Key 或 API 地址错误；余额不足的 429 需要检查余额，不能只按限流处理。
 - 主人私聊成功后再放行群和其他用户。QQ 登录/设备验证由 QQ 本身完成。

@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, "/AstrBot")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from companion_profile import configure_core, configure_plugin
+from deepseek_search import configure_fresh
 
 PLUGIN_NAMES = ['astrbot_plugin_livingmemory', 'astrbot_plugin_proactive_chat',
                 'meme_manager', 'astrbot_plugin_signin']
@@ -53,6 +54,7 @@ def make_config(defaults, settings, password_hash, md5_hash):
         "embedding_dimensions": 1024, "timeout": 180, "proxy": "",
     })
     configure_core(config, model_id, groups)
+    configure_fresh(config, settings)
     if "agent_runner" in config:
         runner = config["agent_runner"]
         if runner.get("runner_type") != "local":

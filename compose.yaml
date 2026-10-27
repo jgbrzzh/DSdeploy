@@ -1,7 +1,7 @@
-name: dsdeploy
+name: ${DSDEPLOY_PROJECT:-dsdeploy-manual}
 services:
   astrbot:
-    image: dsdeploy-astrbot:local
+    image: ${DSDEPLOY_ASTRBOT_IMAGE:-dsdeploy-astrbot-manual:local}
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,7 +13,7 @@ services:
     depends_on:
       - ollama
     ports:
-      - "127.0.0.1:6185:6185"
+      - "127.0.0.1:${DSDEPLOY_ASTRBOT_PORT:-26185}:6185"
     volumes:
       - ./data/astrbot:/AstrBot/data
       - ./bootstrap:/bootstrap:ro
@@ -41,7 +41,7 @@ services:
     environment:
       TZ: Asia/Shanghai
     ports:
-      - "127.0.0.1:6099:6099"
+      - "127.0.0.1:${DSDEPLOY_NAPCAT_PORT:-26099}:6099"
     volumes:
       - ./data/napcat:/app/napcat/config
       - ./data/qq:/app/.config/QQ
