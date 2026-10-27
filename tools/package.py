@@ -30,6 +30,10 @@ with zipfile.ZipFile(archive) as bundle:
     for plugin in bundled["plugins"]:
         payload = bundle.read(prefix + "vendor/" + plugin["archive"])
         assert hashlib.sha256(payload).hexdigest() == plugin["sha256"]
+    resources = json.loads(bundle.read(prefix + 'meme-packs/manifest.json'))
+    for pack in resources['packs']:
+        for part in pack['archives']:
+            assert hashlib.sha256(bundle.read(prefix + 'meme-packs/' + part['file'])).hexdigest() == part['sha256']
 checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
 (DIST / "QQ大肥鱼一键部署包.zip.sha256").write_text(checksum + "  " + archive.name + "\n", encoding="utf-8")
 print(json.dumps({"archive": str(archive), "bytes": archive.stat().st_size,

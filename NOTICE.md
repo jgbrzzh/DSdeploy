@@ -18,3 +18,5 @@ DSdeploy 是部署脚本、配置生成器及操作文档的集合，不是 Astr
 vendor 中的 ZIP 由上游固定提交执行 `git archive` 得到，包含对应版本的完整源码、上游说明与许可证，不含本项目使用者的配置或运行数据。精确版本、提交和 SHA-256 记录在 [vendor/manifest.json](vendor/manifest.json)。用户可直接解压检查源码。
 
 Docker、QQ、聊天模型和第三方镜像不会打包进小体积部署 ZIP。它们由用户在实际部署时下载或自行导入，适用各自的条款和许可。
+
+内置“大肥鱼表情包”和“菲比啾比表情包”来自 shirachino 的公开仓库，上游清单声明 CC0。原图片及清单不改动，分装与摘要见 meme-packs/README.md 和 manifest.json。它们不是从用户私人备份发布的附件。

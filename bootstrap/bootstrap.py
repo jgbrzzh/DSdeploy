@@ -174,3 +174,5 @@ if __name__ == "__main__":
     persona = Path("/bootstrap/persona.txt").read_text(encoding="utf-8-sig")
     install_plugins(Path("/AstrBot/data"), settings)
     asyncio.run(initialize(Path("/AstrBot/data"), settings, persona))
+    from install_meme_packs import install
+    print(install(Path("/deploy-meme-packs"), Path("/AstrBot/data")))

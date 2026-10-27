@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig')]
+    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig','InstallMemePacks')]
     [string]$Action = 'Start',
     [switch]$NoBrowser,
     [ValidateSet('DaoCloud','1ms','Official')]
@@ -353,7 +353,7 @@ function Invoke-CompanionMaintenance([string]$Entry) {
     $running = @($probe.Output | Where-Object { $_ -in @('astrbot','napcat','ollama') })
     $backupDirectory = Join-Path $Root 'backups'
     New-Item -ItemType Directory -Force -Path $backupDirectory | Out-Null
-    $destination = Join-Path $backupDirectory ('陪伴升级前-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+    $destination = Join-Path $backupDirectory ('陪伴升级前-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.zip')
     Invoke-Compose @('stop')
     try {
         Write-DataBackup $destination
@@ -401,7 +401,7 @@ try {
     }
     if ($Action -eq 'Check') {
         Write-Host '检查部署包结构…'
-        foreach ($file in @('compose.yaml','Dockerfile','bootstrap/bootstrap.py','bootstrap/persona.txt','bootstrap/companion_profile.json','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip')) {
+        foreach ($file in @('compose.yaml','Dockerfile','bootstrap/bootstrap.py','bootstrap/persona.txt','bootstrap/companion_profile.json','meme-packs/manifest.json','vendor/manifest.json','vendor/livingmemory.zip','vendor/proactive_chat.zip','vendor/meme_manager.zip','vendor/signin.zip')) {
             if (-not (Test-Path -LiteralPath (Join-Path $Root $file))) { throw "缺少文件：$file" }
         }
         Require-Docker
@@ -451,6 +451,7 @@ try {
         'Stop' { Invoke-Compose @('stop'); Write-Host '服务已停止，聊天记录和登录状态保留。' }
         'Status' { Invoke-Compose @('ps'); Write-Host 'QQ 在线与反向连接状态请查看 NapCat 面板；模型状态请在 AstrBot 测试。' }
         'Logs' { Invoke-Compose @('logs','--tail','150','-f') }
+        'InstallMemePacks' { Invoke-CompanionMaintenance 'install_meme_packs.py' }
         'UpgradeCompanion' { Invoke-CompanionMaintenance 'upgrade_companion.py' }
         'ImportMemes' {
             $inputArchive = Read-Host '请输入你自己的 AstrBot 备份 ZIP 完整路径（只导入表情图片）'
@@ -468,7 +469,7 @@ try {
             if ($LASTEXITCODE -ne 0) { throw '读取运行状态失败。' }
             $backupDir = Join-Path $Root 'backups'
             New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
-            $destination = Join-Path $backupDir ('大肥鱼-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.zip')
+            $destination = Join-Path $backupDir ('大肥鱼-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.zip')
             Invoke-Compose @('stop')
             try {
                 Write-DataBackup $destination

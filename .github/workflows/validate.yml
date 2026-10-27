@@ -39,6 +39,8 @@ jobs:
         run: |
           python bootstrap/install_plugins.py vendor .research/extracted-plugins
           python tests/verify_source.py
+      - name: Verify bundled public meme packs
+        run: python tests/verify_meme_packs.py
       - name: Build and audit clean deployment ZIP
         run: |
           python tools/package.py

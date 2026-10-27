@@ -81,6 +81,8 @@ def main():
             shutil.copy2(ROOT / name, root)
         for directory in ["bootstrap", "vendor"]:
             shutil.copytree(ROOT / directory, root / directory, ignore=shutil.ignore_patterns("__pycache__"))
+        (root / "meme-packs").mkdir()
+        shutil.copy2(ROOT / 'meme-packs/manifest.json', root / 'meme-packs/manifest.json')
         (root / "private").mkdir()
         settings = dict(owner_qq="12345678", bot_qq="87654321", model="deepseek-flash",
                         api_base="https://api.deepseek.com/v1", api_key="fixture-only",
@@ -184,8 +186,10 @@ def main():
             calls = [json.loads(line) for line in (root / "commands.jsonl").read_text().splitlines()]
             restarts = [args for args in calls if 'start' in args]
             assert restarts[-1][-3:] == ['start', 'astrbot', 'ollama']
+            run('InstallMemePacks')
+            assert config.read_bytes() == saved
             run('UpgradeCompanion')
-            assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 1
+            assert len(list((root / 'backups').glob('陪伴升级前-*.zip'))) == 2
             assert config.read_bytes() == saved
             (root / "fail-bootstrap").touch()
             run('Start')  # Startup no longer invokes bootstrap at all.

@@ -17,6 +17,7 @@ services:
     volumes:
       - ./data/astrbot:/AstrBot/data
       - ./bootstrap:/bootstrap:ro
+      - ./meme-packs:/deploy-meme-packs:ro
       - ./private:/deploy-private:ro
     logging:
       driver: json-file

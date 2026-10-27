@@ -1,0 +1,42 @@
+{
+  "packs": [
+    {
+      "id": "deepseek-girl-pack",
+      "repository": "https://github.com/shirachino/astrbot-deepseek-meme-pack",
+      "commit": "7b9d61b09ce068cac621ff2c520ecab11d35d967",
+      "license": "CC0",
+      "images": 138,
+      "archives": [
+        {
+          "file": "deepseek-girl-pack-01.zip",
+          "sha256": "4093fd198dcdb1a91d0639dcea1fe9f8ee20c7dce5a436245c8bd59b9812afa1"
+        },
+        {
+          "file": "deepseek-girl-pack-02.zip",
+          "sha256": "f30d71a3392ffc7a9d2bbd8badb5389dcd0d2f8693dfc15183a83d84a2bad125"
+        },
+        {
+          "file": "deepseek-girl-pack-03.zip",
+          "sha256": "ef4a87376fb0009fea3d813a754b6fbf30e43671de87020adf25d3743273ac4f"
+        }
+      ]
+    },
+    {
+      "id": "wuwa-phoebe-pack",
+      "repository": "https://github.com/shirachino/astrbot-Phoebe-meme-pack",
+      "commit": "ad942f73d5ec5bdb43a84bbe315efa4d0602117f",
+      "license": "CC0",
+      "images": 101,
+      "archives": [
+        {
+          "file": "wuwa-phoebe-pack-01.zip",
+          "sha256": "e35c08656d35f3b62c81aed586a24f1f41f191e8ca9484ef2a4dfb9957b6d3e7"
+        },
+        {
+          "file": "wuwa-phoebe-pack-02.zip",
+          "sha256": "85c378e2df3ee2163f9bf5d07e38b5a5fbc2ab1d91c4dfea949b5fdb6575f1d7"
+        }
+      ]
+    }
+  ]
+}
