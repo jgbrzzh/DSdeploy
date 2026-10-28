@@ -1,11 +1,12 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig','InstallMemePacks','ConfigureInstance','ConfigureSearch')]
+    [ValidateSet('Start','Stop','Status','Logs','Backup','InstallDocker','Check','ExportImages','UpgradeCompanion','ImportMemes','PrepareImages','UpdateImages','InitializeConfig','InstallMemePacks','ConfigureInstance','ConfigureSearch','FixNapCatDns','RestoreNapCatDns','Migrate','RollbackMigration')]
     [string]$Action = 'Start',
     [switch]$NoBrowser,
     [ValidateRange(0,65535)][int]$AstrBotPort = 0,
     [ValidateRange(0,65535)][int]$NapCatPort = 0,
     [switch]$AdoptData,
+    [string]$SourceDirectory = '',
     [ValidateSet('DaoCloud','1ms','Official')]
     [string]$ImageSource = 'DaoCloud'
 )
@@ -50,7 +51,7 @@ function Write-DataBackup([string]$Destination) {
     $partial = $Destination + '.partial'
     $archive = [IO.Compression.ZipFile]::Open($partial, [IO.Compression.ZipArchiveMode]::Create)
     try {
-        foreach ($relative in @('data/astrbot','data/napcat','data/qq','private','compose.yaml','compose.lock.json')) {
+        foreach ($relative in @('data/astrbot','data/napcat','data/qq','private','compose.yaml','compose.lock.json','compose.dns.json','compose.napcat-dns.json','compose.migrated.json','migration.json')) {
             $source = Join-Path $Root $relative
             if (-not (Test-Path -LiteralPath $source)) { continue }
             foreach ($file in Get-BackupFiles $source) {
@@ -98,20 +99,81 @@ function Pull-DeploymentImage([string]$Canonical) {
     if ($reference -ne $Canonical) { Invoke-Docker -DockerArgs @('tag',$reference,$Canonical) }
 }
 function Get-ComposeArgs {
-    $result = @('compose', '--project-name', $script:Instance.project, '--project-directory', $Root, '-f', (Join-Path $Root 'compose.yaml'))
+    $baseFile = if (Test-Path -LiteralPath (Join-Path $Root 'compose.migrated.json')) { 'compose.migrated.json' } else { 'compose.yaml' }
+    $result = @('compose', '--project-name', $script:Instance.project, '--project-directory', $Root, '-f', (Join-Path $Root $baseFile))
     if (Test-Path -LiteralPath (Join-Path $Root 'compose.lock.json')) {
         $result += @('-f', (Join-Path $Root 'compose.lock.json'))
     }
     if (Test-Path -LiteralPath (Join-Path $Root 'compose.dns.json')) {
         $result += @('-f', (Join-Path $Root 'compose.dns.json'))
     }
+    if (Test-Path -LiteralPath (Join-Path $Root 'compose.napcat-dns.json')) {
+        $result += @('-f', (Join-Path $Root 'compose.napcat-dns.json'))
+    }
     return $result
 }
 function Invoke-Compose([string[]]$ComposeArgs) {
     Invoke-Docker -DockerArgs ((Get-ComposeArgs) + $ComposeArgs)
 }
+function Set-NapCatDns([bool]$Restore = $false) {
+    $override = Join-Path $Root 'compose.napcat-dns.json'
+    $baseline = Join-Path $Root 'private/napcat-dns-original.json'
+    foreach ($path in @($override, $baseline)) {
+        if ((Test-Path -LiteralPath $path) -and ((Get-Item -LiteralPath $path -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "DNS 配置或备份不能是链接：$path"
+        }
+    }
+    $container = Get-DockerProbe ((Get-ComposeArgs) + @('ps','--all','--quiet','napcat'))
+    if ($container.ExitCode -ne 0 -or -not $container.Output) {
+        throw '未找到本目录的 NapCat 容器。请先完成部署并启动，再运行 DNS 修复。'
+    }
+    $existed = Test-Path -LiteralPath $override
+    $previous = if ($existed) { [Convert]::ToBase64String([IO.File]::ReadAllBytes($override)) } else { '' }
+    if ($Restore) {
+        if (-not (Test-Path -LiteralPath $baseline)) { throw '没有 DNS 修复前的备份，无需恢复。' }
+        $original = Get-Content -LiteralPath $baseline -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($original.existed -isnot [bool]) { throw 'DNS 备份格式无效。' }
+        $originalBytes = if ($original.existed) { [Convert]::FromBase64String($original.content) } else { $null }
+    } elseif (-not (Test-Path -LiteralPath $baseline)) {
+        Write-Utf8 $baseline (@{existed=[bool]$existed; content=$previous} | ConvertTo-Json)
+    }
+    try {
+        if ($Restore) {
+            if ($original.existed) { [IO.File]::WriteAllBytes($override, [byte[]]$originalBytes) }
+            elseif (Test-Path -LiteralPath $override) { Remove-Item -LiteralPath $override }
+        } else {
+            Write-Utf8 $override (@{services=@{napcat=@{dns=@('223.5.5.5','119.29.29.29')}}} | ConvertTo-Json -Depth 5)
+        }
+        Invoke-Compose @('config','--quiet')
+        Write-Host '正在重新创建本实例的 NapCat 容器，QQ 会短暂断开……'
+        Invoke-Compose @('up','-d','--no-deps','--no-build','--pull','never','--force-recreate','napcat')
+    } catch {
+        $failure = $_.Exception.Message
+        if ($existed) { [IO.File]::WriteAllBytes($override, [Convert]::FromBase64String($previous)) }
+        elseif (Test-Path -LiteralPath $override) { Remove-Item -LiteralPath $override }
+        Write-Host '操作失败，配置文件已回退；正在尝试用原配置恢复 NapCat。' -ForegroundColor Yellow
+        try { Invoke-Compose @('up','-d','--no-deps','--no-build','--pull','never','--force-recreate','napcat') }
+        catch { Write-Warning '原配置已保留，但容器未恢复。请检查 Docker 状态后重新启动。' }
+        throw $failure
+    }
+    if ($Restore) {
+        Remove-Item -LiteralPath $baseline
+        Write-Host '已恢复修复前的 DNS 配置。' -ForegroundColor Green
+    } else {
+        Write-Host 'NapCat DNS 已设为 223.5.5.5、119.29.29.29；以后启动仍会生效。' -ForegroundColor Green
+        Write-Host '需要撤销时，双击“恢复NapCat DNS.cmd”。'
+    }
+    Write-Host ('请打开 http://127.0.0.1:' + $script:Instance.napcat_port + '/webui 检查二维码和 QQ 登录。DNS 配置成功不代表登录已恢复。')
+}
 function Require-Docker {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        $identityPath = Join-Path $Root 'private/instance.json'
+        if (Test-Path -LiteralPath $identityPath) {
+            $dockerIdentity = Get-Content -LiteralPath $identityPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($dockerIdentity.PSObject.Properties.Name -contains 'docker_bin') {
+                if (Test-Path -LiteralPath (Join-Path $dockerIdentity.docker_bin 'docker.exe')) { $env:PATH += ';' + $dockerIdentity.docker_bin }
+            }
+        }
         foreach ($dockerBin in @((Join-Path $Root 'runtime/DockerDesktop/resources/bin'), (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin'))) {
             if (Test-Path -LiteralPath (Join-Path $dockerBin 'docker.exe')) { $env:PATH += ";$dockerBin"; break }
         }
@@ -380,6 +442,22 @@ function Invoke-CompanionMaintenance([string]$Entry) {
     }
 }
 try {
+    if ($Action -in @('Migrate','RollbackMigration')) {
+        . (Join-Path $Root 'bootstrap/migrate.ps1')
+        $migrationLockPath = Join-Path $Root 'runtime/migration.lock'
+        Assert-MigrationPath $migrationLockPath
+        try { $migrationLock = [IO.File]::Open($migrationLockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) }
+        catch { throw '这个目录已有迁移或回退在运行，请等当前窗口完成后再操作。' }
+        try {
+            if ($Action -eq 'Migrate') { Invoke-DeploymentMigration $SourceDirectory }
+            else { Undo-DeploymentMigration }
+        } finally { $migrationLock.Dispose() }
+        exit 0
+    }
+    if ($Action -notin @('Check','Status','Logs','Stop') -and (Test-Path -LiteralPath (Join-Path $Root 'migration.json'))) {
+        $migrationState = Get-Content -LiteralPath (Join-Path $Root 'migration.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($migrationState.status -ne 'complete' -and $migrationState.status -ne 'rolled-back') { throw '上次迁移尚未完成。请先双击“回退版本迁移.cmd”，不要直接启动。' }
+    }
     Initialize-Instance
     if ($Action -eq 'ConfigureInstance') {
         Get-Content -LiteralPath (Join-Path $Root 'private/本实例面板地址.txt') -Encoding UTF8
@@ -479,6 +557,8 @@ try {
         'Logs' { Invoke-Compose @('logs','--tail','150','-f') }
         'InstallMemePacks' { Invoke-CompanionMaintenance 'install_meme_packs.py' }
         'ConfigureSearch' { Invoke-CompanionMaintenance 'deepseek_search.py' }
+        'FixNapCatDns' { Set-NapCatDns }
+        'RestoreNapCatDns' { Set-NapCatDns $true }
         'UpgradeCompanion' { Invoke-CompanionMaintenance 'upgrade_companion.py' }
         'ImportMemes' {
             $inputArchive = Read-Host '请输入你自己的 AstrBot 备份 ZIP 完整路径（只导入表情图片）'

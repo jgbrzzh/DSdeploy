@@ -10,6 +10,11 @@ offline/*.sha256
 offline/*.partial
 compose.lock.json
 compose.dns.json
+compose.napcat-dns.json
+compose.migrated.json
+migration.json
+migration.json.pending
+migration.json.previous
 __pycache__/
 *.pyc
 .env
