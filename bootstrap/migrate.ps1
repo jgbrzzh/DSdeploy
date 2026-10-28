@@ -36,6 +36,23 @@ function Copy-MigrationTree([string]$Source, [string]$Destination, [string]$Rela
         $Manifest.Add([pscustomobject]@{path=$Relative; bytes=$item.Length; sha256=$hash})
     }
 }
+function Copy-MigrationOllama([string]$Source, [string]$Destination, [string]$Transaction, [string]$Image, $Manifest) {
+    # Docker-created Linux file symlinks cannot be read reliably by Windows
+    # PowerShell. Resolve them in Linux, with the original /root/.ollama prefix.
+    Assert-MigrationPath $Source
+    Assert-MigrationPath $Destination
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    $report = Join-Path $Transaction 'ollama-copy-report'
+    New-Item -ItemType Directory -Path $report -Force | Out-Null
+    Invoke-Docker @('run','--rm','--network','none','--entrypoint','python',
+        '--mount',('type=bind,source='+$Source+',target=/root/.ollama,readonly'),
+        '--mount',('type=bind,source='+$Destination+',target=/migration-target'),
+        '--mount',('type=bind,source='+$report+',target=/migration-report'),
+        '--mount',('type=bind,source='+(Join-Path $Root 'bootstrap/copy_ollama.py')+',target=/migration-copy.py,readonly'),
+        $Image,'/migration-copy.py')
+    $entries = Get-Content -LiteralPath (Join-Path $report 'files.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($entry in @($entries)) { $Manifest.Add($entry) }
+}
 function Get-MigrationDockerJson([string[]]$Arguments) {
     $probe = Get-DockerProbe $Arguments
     if ($probe.ExitCode -ne 0) { throw '无法读取旧部署的 Docker 配置或镜像，请确认旧部署使用的 Docker 引擎已启动。' }
@@ -88,7 +105,7 @@ function Undo-DeploymentMigration {
             $workingDirectory = Get-MigrationValue $newContainer.Config.Labels 'com.docker.compose.project.working_dir' ''
             if (-not $workingDirectory -or (Get-MigrationPath $workingDirectory) -ne (Get-MigrationPath $Root)) { throw '新版项目名称被其他目录使用，停止回退，避免误停其他容器。' }
             Invoke-Docker @('update','--restart=no',$id)
-            Invoke-Docker @('stop','--time','60',$id)
+            Invoke-Docker @('stop','--timeout','60',$id)
         }
         $retained = Join-Path $state.transaction 'new-version-retained'
         New-Item -ItemType Directory -Path $retained -Force | Out-Null
@@ -123,7 +140,20 @@ function Invoke-DeploymentMigration([string]$SourceDirectory) {
     $sourcePath = Get-MigrationPath $SourceDirectory
     $targetPath = Get-MigrationPath $Root
     if ($sourcePath -eq $targetPath -or $sourcePath.StartsWith($targetPath+'\') -or $targetPath.StartsWith($sourcePath+'\')) { throw '旧版和新版必须是互不包含的两个目录，不能原地迁移。' }
-    if (Test-Path -LiteralPath (Join-Path $Root 'migration.json')) { throw '本目录已有迁移记录。请使用已迁移的实例；如要重新迁移，请将新版解压到另一个空目录。' }
+    $previousReceipt = Join-Path $Root 'migration.json'
+    if (Test-Path -LiteralPath $previousReceipt) {
+        Assert-MigrationPath $previousReceipt
+        $previousState = Get-Content -LiteralPath $previousReceipt -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($previousState.status -eq 'rolled-back' -and -not $previousState.committed -and
+            (Get-MigrationPath $previousState.target) -eq $targetPath -and
+            (Get-MigrationPath $previousState.source) -eq $sourcePath) {
+            # A pre-cutover failure changed no destination data or containers.
+            # Retain its backup/journal and allow retry after updating the program.
+            $archivedReceipt = Join-Path $Root ('backups/retried-migration-' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff') + '.json')
+            Assert-MigrationPath $archivedReceipt
+            Move-Item -LiteralPath $previousReceipt -Destination $archivedReceipt
+        } else { throw '本目录已有迁移记录。请使用已迁移的实例；如要重新迁移，请将新版解压到另一个空目录。' }
+    }
     foreach ($relative in @('compose.yaml','data/astrbot/cmd_config.json','data/napcat/webui.json','private/settings.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $SourceDirectory $relative) -PathType Leaf)) { throw "旧版目录缺少 $relative，请选择完整的部署包目录。" }
     }
@@ -246,7 +276,7 @@ function Invoke-DeploymentMigration([string]$SourceDirectory) {
     try {
         Write-Host ('正在迁移旧版 ' + $sourceVersion + '；旧目录保留，配置和记忆不套用新版默认值。') -ForegroundColor Cyan
         # Stop ALL source services, including originally stopped ones; verify none remain running.
-        foreach ($container in $state.containers) { Invoke-Docker @('stop','--time','60',$container.id) }
+        foreach ($container in $state.containers) { Invoke-Docker @('stop','--timeout','60',$container.id) }
         foreach ($container in $state.containers) {
             $stopped = @(Get-MigrationDockerJson @('inspect',$container.id))[0]
             if ($stopped.State.Running) { throw '旧容器仍在写入数据，未开始复制。' }
@@ -257,6 +287,10 @@ function Invoke-DeploymentMigration([string]$SourceDirectory) {
             New-Item -ItemType Directory -Path (Join-Path $snapshot $relative) -Force | Out-Null
             foreach ($child in Get-ChildItem -LiteralPath (Join-Path $SourceDirectory $relative) -Force) {
                 if ($relative -eq 'data' -and $child.Name -eq 'docker-desktop') { continue }
+                if ($relative -eq 'data' -and $child.Name -eq 'ollama') {
+                    Copy-MigrationOllama $child.FullName (Join-Path $snapshot 'data/ollama') $transaction $serviceImages.astrbot $manifest
+                    continue
+                }
                 Copy-MigrationTree $child.FullName (Join-Path $snapshot ($relative+'/'+$child.Name)) ($relative+'/'+$child.Name) $manifest
             }
         }

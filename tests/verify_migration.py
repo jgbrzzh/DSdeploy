@@ -56,6 +56,17 @@ elif args[0]=='update':
  state['containers'][args[-1]]['retries']=int(policy[1]) if len(policy)>1 else 0
  save()
 elif args[0]=='tag': state['images'][args[2]]=state['images'][args[1]]; save()
+elif args[0]=='run':
+ if (root/'fail-copy-once').exists(): sys.exit(44)
+ import importlib.util
+ mounts={}
+ for i,arg in enumerate(args):
+  if arg=='--mount':
+   fields=dict(part.split('=',1) for part in args[i+1].split(',') if '=' in part)
+   mounts[fields['target']]=fields['source']
+ spec=importlib.util.spec_from_file_location('copy_ollama',mounts['/migration-copy.py'])
+ module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+ module.copy_ollama(mounts['/root/.ollama'],mounts['/migration-target'],str(Path(mounts['/migration-report'])/'files.json'))
 elif args[0]=='compose':
  files=[Path(args[i+1]) for i,v in enumerate(args) if v=='-f']
  project=args[args.index('--project-name')+1]
@@ -181,6 +192,8 @@ def main():
                 if failure == 'interrupted':
                     (case / 'fail-up').touch()
                     (case / 'fail-new-stop').touch()
+                if failure == 'retry':
+                    (case / 'fail-copy-once').touch()
                 if failure == 'junction':
                     subprocess.run(['cmd','/c','mklink','/J',str(old/'data/astrbot/link'),str(old/'data/qq')],
                                    capture_output=True,check=True)
@@ -199,6 +212,13 @@ def main():
                     assert (proc.returncode==0)==success, (version,failure,proc.stdout.decode('utf-8',errors='replace'),proc.stderr.decode('utf-8',errors='replace'))
                 run('Migrate', success=not failure)
                 assert tree(old)==before, 'source files changed'
+                if failure == 'retry':
+                    first_receipt=json.loads((new/'migration.json').read_text(encoding='utf-8'))
+                    assert first_receipt['status']=='rolled-back' and not first_receipt['committed']
+                    (case/'fail-copy-once').unlink()
+                    run('Migrate')
+                    assert list((new/'backups').glob('retried-migration-*.json'))
+                    failure=None
                 if failure == 'interrupted':
                     assert json.loads((new/'migration.json').read_text(encoding='utf-8'))['status']=='switching'
                     run('Start',success=False)
@@ -253,11 +273,13 @@ def main():
                 assert all(tree(new/'private')[key]==value for key,value in target_before.items())
                 assert tree(old)==before
 
-            for version in VERSIONS:
+            versions = ('1.0.0',) if '--focused' in sys.argv else VERSIONS
+            for version in versions:
                 scenario(version)
-            for failure in ('fail-up','foreign','external-bind','missing-image','junction','port-drift','interrupted'):
+            failures = ('junction','retry') if '--focused' in sys.argv else ('fail-up','foreign','external-bind','missing-image','junction','port-drift','interrupted','retry')
+            for failure in failures:
                 scenario('1.0.0',failure)
-            print('PASS: six historical layouts; byte-identical settings, SQLite memories, FAISS, plugin/session/model data; ports/images/DNS; rollback + retained new data; foreign/external/missing-image/link guards.')
+            print(f'PASS: {len(versions)} historical layout(s); byte-identical settings, SQLite memories, FAISS, plugin/session/model data; ports/images/DNS; rollback + retained new data; link guards and pre-cutover retry.')
         finally:
             for server in servers:
                 server.shutdown()
